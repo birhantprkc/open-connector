@@ -2,7 +2,7 @@ import type { IConnectionStore } from "../connection-service.ts";
 import type { ResolvedCredential } from "../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../oauth/oauth-flow-service.ts";
-import type { RuntimeDataSnapshot } from "./runtime-data-backup.ts";
+import type { RuntimeConnectionSnapshot, RuntimeDataSnapshot } from "./runtime-data-backup.ts";
 import type { IRunLogStore, RunLog } from "./runtime-store.ts";
 import type { ISecretCodec } from "./secret-codec.ts";
 
@@ -11,7 +11,34 @@ import { createRuntimeDataSnapshot } from "./runtime-data-backup.ts";
 import { PlainTextSecretCodec } from "./secret-codec.ts";
 
 type RuntimeRow = Record<string, unknown>;
-type SecretJsonTable = "connections" | "oauth_client_configs";
+type SecretJsonTable = "oauth_client_configs";
+
+export interface SqliteRuntimeDatabaseOptions {
+  runLimit?: number;
+  secretCodec?: ISecretCodec;
+}
+
+interface ConnectionJsonInput {
+  database: DatabaseSync;
+  secretCodec: ISecretCodec;
+  service: string;
+  connectionName: string;
+}
+
+interface SetConnectionJsonInput extends ConnectionJsonInput {
+  value: unknown;
+}
+
+interface SecretJsonInput {
+  database: DatabaseSync;
+  secretCodec: ISecretCodec;
+  table: SecretJsonTable;
+  service: string;
+}
+
+interface SetServiceJsonInput extends SecretJsonInput {
+  value: unknown;
+}
 
 /**
  * Shared SQLite connection for local runtime state.
@@ -25,7 +52,7 @@ export class SqliteRuntimeDatabase {
   private readonly database: DatabaseSync;
   private readonly secretCodec: ISecretCodec;
 
-  constructor(filename: string, options: { runLimit?: number; secretCodec?: ISecretCodec } = {}) {
+  constructor(filename: string, options: SqliteRuntimeDatabaseOptions = {}) {
     this.database = new DatabaseSync(filename);
     this.secretCodec = options.secretCodec ?? new PlainTextSecretCodec();
     this.initialize();
@@ -51,10 +78,22 @@ export class SqliteRuntimeDatabase {
     runInTransaction(this.database, () => {
       this.resetRuntimeData();
       for (const connection of snapshot.connections) {
-        setServiceJson(this.database, this.secretCodec, "connections", connection.service, connection.credential);
+        setConnectionJson({
+          database: this.database,
+          secretCodec: this.secretCodec,
+          service: connection.service,
+          connectionName: connection.connectionName,
+          value: connection.credential,
+        });
       }
       for (const config of snapshot.oauthClientConfigs) {
-        setServiceJson(this.database, this.secretCodec, "oauth_client_configs", config.service, config);
+        setServiceJson({
+          database: this.database,
+          secretCodec: this.secretCodec,
+          table: "oauth_client_configs",
+          service: config.service,
+          value: config,
+        });
       }
       for (const run of snapshot.runs) {
         insertRun(this.database, run);
@@ -75,9 +114,11 @@ export class SqliteRuntimeDatabase {
     this.database.exec(`
       pragma journal_mode = wal;
       create table if not exists connections (
-        service text primary key,
+        service text not null,
+        connection_name text not null,
         value text not null,
-        updated_at text not null
+        updated_at text not null,
+        primary key (service, connection_name)
       );
       create table if not exists oauth_client_configs (
         service text primary key,
@@ -110,24 +151,38 @@ export class SqliteConnectionStore implements IConnectionStore {
     this.secretCodec = secretCodec;
   }
 
-  async get(service: string): Promise<ResolvedCredential | undefined> {
-    return getSecretJson<ResolvedCredential>(this.database, this.secretCodec, "connections", "service", service);
+  async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
+    return getConnectionJson<ResolvedCredential>({
+      database: this.database,
+      secretCodec: this.secretCodec,
+      service,
+      connectionName,
+    });
   }
 
-  async set(service: string, credential: ResolvedCredential): Promise<void> {
-    setServiceJson(this.database, this.secretCodec, "connections", service, credential);
+  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+    setConnectionJson({
+      database: this.database,
+      secretCodec: this.secretCodec,
+      service,
+      connectionName,
+      value: credential,
+    });
   }
 
-  async delete(service: string): Promise<void> {
-    this.database.prepare("delete from connections where service = ?").run(service);
+  async delete(service: string, connectionName: string): Promise<void> {
+    this.database
+      .prepare("delete from connections where service = ? and connection_name = ?")
+      .run(service, connectionName);
   }
 
-  async list(): Promise<Array<{ service: string; credential: ResolvedCredential }>> {
+  async list(): Promise<RuntimeConnectionSnapshot[]> {
     return this.database
-      .prepare("select service, value from connections order by service")
+      .prepare("select service, connection_name, value from connections order by service, connection_name")
       .all()
       .map((row) => ({
         service: readString(row, "service"),
+        connectionName: readString(row, "connection_name"),
         credential: parseJson<ResolvedCredential>(this.secretCodec.decode(readString(row, "value"))),
       }));
   }
@@ -143,17 +198,22 @@ export class SqliteOAuthClientConfigStore implements IOAuthClientConfigStore {
   }
 
   async get(service: string): Promise<OAuthClientConfig | undefined> {
-    return getSecretJson<OAuthClientConfig>(
-      this.database,
-      this.secretCodec,
-      "oauth_client_configs",
-      "service",
+    return getSecretJson<OAuthClientConfig>({
+      database: this.database,
+      secretCodec: this.secretCodec,
+      table: "oauth_client_configs",
       service,
-    );
+    });
   }
 
   async set(config: OAuthClientConfig): Promise<void> {
-    setServiceJson(this.database, this.secretCodec, "oauth_client_configs", config.service, config);
+    setServiceJson({
+      database: this.database,
+      secretCodec: this.secretCodec,
+      table: "oauth_client_configs",
+      service: config.service,
+      value: config,
+    });
   }
 
   async delete(service: string): Promise<void> {
@@ -261,15 +321,16 @@ function getJson<T>(database: DatabaseSync, table: "oauth_states", keyColumn: "s
   return row ? parseJson<T>(readString(row, "value")) : undefined;
 }
 
-function getSecretJson<T>(
-  database: DatabaseSync,
-  secretCodec: ISecretCodec,
-  table: SecretJsonTable,
-  keyColumn: "service",
-  key: string,
-): T | undefined {
-  const stored = getStoredValue(database, table, keyColumn, key);
-  return stored ? parseJson<T>(secretCodec.decode(stored)) : undefined;
+function getSecretJson<T>(input: SecretJsonInput): T | undefined {
+  const stored = getStoredValue(input.database, input.table, "service", input.service);
+  return stored ? parseJson<T>(input.secretCodec.decode(stored)) : undefined;
+}
+
+function getConnectionJson<T>(input: ConnectionJsonInput): T | undefined {
+  const row = input.database
+    .prepare("select value from connections where service = ? and connection_name = ?")
+    .get(input.service, input.connectionName) as RuntimeRow | undefined;
+  return row ? parseJson<T>(input.secretCodec.decode(readString(row, "value"))) : undefined;
 }
 
 function getStoredValue(
@@ -282,22 +343,35 @@ function getStoredValue(
   return row ? readString(row, "value") : undefined;
 }
 
-function setServiceJson(
-  database: DatabaseSync,
-  secretCodec: ISecretCodec,
-  table: SecretJsonTable,
-  service: string,
-  value: unknown,
-): void {
-  database
+function setConnectionJson(input: SetConnectionJsonInput): void {
+  input.database
     .prepare(
       `
-      insert into ${table} (service, value, updated_at)
+      insert into connections (service, connection_name, value, updated_at)
+      values (?, ?, ?, ?)
+      on conflict(service, connection_name) do update set
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `,
+    )
+    .run(
+      input.service,
+      input.connectionName,
+      input.secretCodec.encode(JSON.stringify(input.value)),
+      new Date().toISOString(),
+    );
+}
+
+function setServiceJson(input: SetServiceJsonInput): void {
+  input.database
+    .prepare(
+      `
+      insert into ${input.table} (service, value, updated_at)
       values (?, ?, ?)
       on conflict(service) do update set value = excluded.value, updated_at = excluded.updated_at
     `,
     )
-    .run(service, secretCodec.encode(JSON.stringify(value)), new Date().toISOString());
+    .run(input.service, input.secretCodec.encode(JSON.stringify(input.value)), new Date().toISOString());
 }
 
 function readString(row: unknown, key: string): string {

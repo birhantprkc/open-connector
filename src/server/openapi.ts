@@ -99,11 +99,11 @@ export function createOpenApiDocument(
 
   const paths: Record<string, unknown> = {
     "/health": getOperation("Runtime health check.", { ok: jsonSchema.boolean() }),
-    "/api/apps": getOperation("List provider catalog entries.", {
+    "/api/providers": getOperation("List provider catalog entries.", {
       type: "array",
       items: { $ref: "#/components/schemas/ProviderDefinition" },
     }),
-    "/api/apps/{service}": getOperation("Get one provider catalog entry.", {
+    "/api/providers/{service}": getOperation("Get one provider catalog entry.", {
       $ref: "#/components/schemas/ProviderDefinition",
     }),
     "/api/actions": getOperation("List all catalog actions.", {
@@ -113,7 +113,7 @@ export function createOpenApiDocument(
     "/api/actions/{actionId}": getOperation("Get one catalog action.", {
       $ref: "#/components/schemas/ActionDefinition",
     }),
-    "/api/{actionId}.md": getOperation("Get one markdown action guide.", {
+    "/api/actions/{actionId}/agent.md": getOperation("Get one markdown action guide.", {
       type: "string",
       description: "Markdown guide for one action.",
     }),
@@ -128,7 +128,7 @@ export function createOpenApiDocument(
     }),
     "/api/oauth/configs/{service}": createOAuthConfigPath(),
     "/api/oauth/authorizations": createOAuthAuthorizationPath(),
-    "/api/run/{actionId}": runPath,
+    "/api/actions/{actionId}/runs": runPath,
     "/api/runs": createRunsPath(),
     "/mcp": createMcpPath(),
     "/mcp/tools": getOperation("List discovery-oriented MCP tool summaries.", {
@@ -361,6 +361,9 @@ function createOAuthAuthorizationPath(): Record<string, unknown> {
             schema: jsonSchema.object(
               {
                 service: jsonSchema.string({ description: "Provider service identifier." }),
+                connectionName: jsonSchema.string({
+                  description: "Optional local connection name. Defaults to default.",
+                }),
               },
               {
                 required: ["service"],
@@ -449,6 +452,9 @@ function createConnectionUpsertRequestSchema(): JsonSchema {
     {
       authType: jsonSchema.string({
         description: "Connection auth type: no_auth, api_key, or custom_credential.",
+      }),
+      connectionName: jsonSchema.string({
+        description: "Optional local connection name. Defaults to default.",
       }),
       values: {
         type: "object",

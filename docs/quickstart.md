@@ -1,6 +1,6 @@
 # Quickstart
 
-Install dependencies and generate the local catalog:
+Install dependencies, generate the local catalog, run the build, and start the runtime:
 
 ```bash
 npm install
@@ -11,18 +11,34 @@ npm run dev
 
 Open the API reference at `http://localhost:3000/docs`.
 
-Run a no-auth action:
+## Run A No-Auth Action
+
+Hacker News does not need credentials, so it is the fastest way to verify the runtime:
 
 ```bash
-curl -s http://localhost:3000/api/run/hackernews.get_top_stories \
+curl -s -X POST http://localhost:3000/v1/actions/hackernews.get_top_stories \
   -H 'content-type: application/json' \
   -d '{"input":{}}'
 ```
 
-List MCP tool metadata:
+## Discover Actions
+
+List services that expose actions:
 
 ```bash
-curl -s http://localhost:3000/mcp/tools
+curl -s http://localhost:3000/v1/actions
+```
+
+List action contracts for one service:
+
+```bash
+curl -s "http://localhost:3000/v1/actions?service=hackernews"
+```
+
+Get a local markdown guide for one action:
+
+```bash
+curl -s http://localhost:3000/api/actions/hackernews.get_top_stories/agent.md
 ```
 
 Inspect local connections and the account identity exposed to users and agents:
@@ -31,12 +47,74 @@ Inspect local connections and the account identity exposed to users and agents:
 curl -s http://localhost:3000/api/connections
 ```
 
-Get a compact action guide with required scopes, provider permissions, current connection identity,
-and HTTP execution examples:
+## Configure An API Key Connection
+
+Inspect the provider to see supported auth types and credential fields:
 
 ```bash
-curl -s http://localhost:3000/api/hackernews.get_top_stories.md
+curl -s http://localhost:3000/api/providers/github
 ```
+
+Store the default API key connection:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/connections/github \
+  -H 'content-type: application/json' \
+  -d '{"authType":"api_key","values":{"apiKey":"github_pat_..."}}'
+```
+
+Store a named API key connection:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/connections/github \
+  -H 'content-type: application/json' \
+  -d '{"authType":"api_key","connectionName":"work","values":{"apiKey":"github_pat_..."}}'
+```
+
+Execute an action with that default connection:
+
+```bash
+curl -s -X POST http://localhost:3000/v1/actions/github.get_authenticated_user \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+## Configure An OAuth2 Connection
+
+List OAuth configs and copy the `expectedRedirectUri` for your provider:
+
+```bash
+curl -s http://localhost:3000/api/oauth/configs
+```
+
+Paste that exact callback URL into your provider OAuth app. With the default port, GitHub uses:
+
+```text
+http://localhost:3000/oauth/callback/github
+```
+
+If you expose the runtime through another origin, set `OOMOL_CONNECT_ORIGIN` before starting it.
+
+Store the provider OAuth client:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/oauth/configs/github \
+  -H 'content-type: application/json' \
+  -d '{"clientId":"...","clientSecret":"..."}'
+```
+
+Start authorization and open the returned `authorizationUrl`:
+
+```bash
+curl -s -X POST http://localhost:3000/api/oauth/authorizations \
+  -H 'content-type: application/json' \
+  -d '{"service":"github"}'
+```
+
+After the browser callback completes, the OAuth credential is stored as the default connection. Add
+`"connectionName":"work"` to the authorization request to store the result as a named connection.
+
+## Web Console
 
 The web console is served at `http://localhost:3000` after building the `web` workspace:
 
@@ -44,6 +122,8 @@ The web console is served at `http://localhost:3000` after building the `web` wo
 npm run build:web
 npm run dev
 ```
+
+## Runtime Settings
 
 Local runtime state is stored in `./data/connect.sqlite` by default. Override the directory with:
 
@@ -59,13 +139,18 @@ Set `OOMOL_CONNECT_ENCRYPTION_KEY` to encrypt stored credentials:
 OOMOL_CONNECT_ENCRYPTION_KEY="replace-with-a-long-random-secret" npm run dev
 ```
 
-Set `OOMOL_CONNECT_API_TOKEN` to require a bearer token for API and MCP requests:
+Set separate admin and runtime bearer tokens:
 
 ```bash
-OOMOL_CONNECT_API_TOKEN="replace-with-a-local-token" npm run dev
+OOMOL_CONNECT_ADMIN_TOKEN="replace-with-an-admin-token" \
+OOMOL_CONNECT_RUNTIME_TOKEN="replace-with-a-runtime-token" \
+npm run dev
 curl -s http://localhost:3000/api/actions \
-  -H "authorization: Bearer replace-with-a-local-token"
+  -H "authorization: Bearer replace-with-an-admin-token"
 ```
+
+Use the admin token for `/api`, `/docs`, and the web console. Use the runtime token for `/v1` and
+`/mcp`. The legacy `OOMOL_CONNECT_API_TOKEN` still works as a fallback for both.
 
 The server binds to `127.0.0.1` by default. Set `HOST=0.0.0.0` only when the runtime must be
 reachable from outside the local machine or container.

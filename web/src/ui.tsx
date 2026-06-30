@@ -120,7 +120,7 @@ interface AppData {
   runs: RunLog[];
 }
 
-interface AppsViewProps {
+interface ProvidersViewProps {
   providers: ProviderDefinition[];
   connectionsByService: Map<string, ConnectionRecord>;
   oauthConfigServices: Set<string>;
@@ -178,7 +178,7 @@ const emptyData: AppData = {
 };
 
 const tabs = [
-  { id: "apps", label: "Apps", icon: AppWindow },
+  { id: "providers", label: "Providers", icon: AppWindow },
   { id: "actions", label: "Actions", icon: TerminalSquare },
   { id: "runs", label: "Runs", icon: Activity },
   { id: "docs", label: "Docs", icon: BookOpen },
@@ -190,7 +190,7 @@ export function App(): ReactNode {
   const [data, setData] = useState<AppData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>("apps");
+  const [activeTab, setActiveTab] = useState<TabId>("providers");
   const [query, setQuery] = useState("");
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
@@ -200,7 +200,7 @@ export function App(): ReactNode {
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      apiGet<ProviderDefinition[]>("/api/apps"),
+      apiGet<ProviderDefinition[]>("/api/providers"),
       apiGet<ConnectionRecord[]>("/api/connections"),
       apiGet<OAuthConfig[]>("/api/oauth/configs"),
       apiGet<RunLog[]>("/api/runs"),
@@ -290,7 +290,7 @@ export function App(): ReactNode {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search apps or actions"
+                placeholder="Search providers or actions"
               />
             </label>
           </div>
@@ -299,14 +299,14 @@ export function App(): ReactNode {
         {error ? <InlineError message={error} /> : null}
 
         <section className="metrics">
-          <Metric label="Apps" value={data.providers.length} />
+          <Metric label="Providers" value={data.providers.length} />
           <Metric label="Actions" value={actions.length} />
           <Metric label="Connected" value={data.connections.length} />
           <Metric label="Runs" value={data.runs.length} />
         </section>
 
-        {activeTab === "apps" ? (
-          <AppsView
+        {activeTab === "providers" ? (
+          <ProvidersView
             providers={filteredProviders}
             connectionsByService={connectionsByService}
             oauthConfigServices={oauthConfigServices}
@@ -341,7 +341,7 @@ export function App(): ReactNode {
   );
 }
 
-function AppsView(props: AppsViewProps): ReactNode {
+function ProvidersView(props: ProvidersViewProps): ReactNode {
   const selectedProvider =
     props.providers.find((provider) => provider.service === props.selectedService) ?? props.providers[0];
 
@@ -376,7 +376,7 @@ function AppsView(props: AppsViewProps): ReactNode {
             onRefresh={props.onRefresh}
           />
         ) : (
-          <EmptyState title="No apps found" description="Try a different search." />
+          <EmptyState title="No providers found" description="Try a different search." />
         )}
       </section>
     </div>
@@ -450,13 +450,13 @@ function ConnectionForm(props: ConnectionFormProps): ReactNode {
     setStatus("Saving connection...");
     try {
       if (props.auth.type === "no_auth") {
-        await apiPost(`/api/connections/${props.provider.service}/no-auth`, {});
+        await apiPut(`/api/connections/${props.provider.service}`, { authType: "no_auth" });
       } else if (props.auth.type === "api_key") {
-        await apiPut(`/api/connections/${props.provider.service}/api-key`, { values });
+        await apiPut(`/api/connections/${props.provider.service}`, { authType: "api_key", values });
       } else if (props.auth.type === "custom_credential") {
-        await apiPut(`/api/connections/${props.provider.service}/custom-credential`, { values });
+        await apiPut(`/api/connections/${props.provider.service}`, { authType: "custom_credential", values });
       } else {
-        await apiPost(`/api/connections/${props.provider.service}/oauth/start`, {});
+        await apiPost(`/api/oauth/authorizations`, { service: props.provider.service });
       }
       setStatus("Connection updated.");
       props.onRefresh();
@@ -822,7 +822,7 @@ function RunActionModal(props: { action: ActionDefinition; onClose(): void }): R
     try {
       const parsed = input.trim() ? (JSON.parse(input) as unknown) : {};
       setResult(
-        await apiPost<ExecutionResult>(`/api/actions/${props.action.id}`, {
+        await apiPost<ExecutionResult>(`/api/actions/${props.action.id}/runs`, {
           input: parsed,
         }),
       );
@@ -896,7 +896,7 @@ function buildAgentPrompt(action: ActionDefinition): { prompt: string } {
   const markdownUrl = `${window.location.origin}/api/actions/${action.id}/agent.md`;
   const prompt = [
     `Read ${markdownUrl} to discover the local request contract for ${action.name}.`,
-    `Then call ${window.location.origin}/api/actions/${action.id} with JSON shaped as { "input": ... }.`,
+    `Then call ${window.location.origin}/api/actions/${action.id}/runs with JSON shaped as { "input": ... }.`,
     "Use the localhost runtime endpoint. Do not call the provider API directly unless I explicitly ask.",
   ].join("\n");
 
@@ -977,14 +977,14 @@ function headingFor(tab: TabId): string {
   if (tab === "actions") return "Actions";
   if (tab === "runs") return "Runs";
   if (tab === "docs") return "Docs";
-  return "Apps";
+  return "Providers";
 }
 
 function subtitleFor(tab: TabId): string {
   if (tab === "actions") return "Generate examples and run local provider actions.";
   if (tab === "runs") return "Recent local action executions.";
   if (tab === "docs") return "Generated API and tool metadata.";
-  return "Connect apps and review provider capabilities.";
+  return "Connect providers and review capabilities.";
 }
 
 function credentialFieldsFor(auth: AuthDefinition): CredentialField[] {
@@ -1077,12 +1077,12 @@ function buildActionExamples(action: ActionDefinition): { curl: string; typescri
   const bodyText = JSON.stringify(body, null, 2);
   return {
     curl: [
-      `curl -s http://localhost:3000/api/actions/${action.id} \\`,
+      `curl -s http://localhost:3000/api/actions/${action.id}/runs \\`,
       "  -H 'content-type: application/json' \\",
       `  -d '${JSON.stringify(body)}'`,
     ].join("\n"),
     typescript: [
-      `const response = await fetch("http://localhost:3000/api/actions/${action.id}", {`,
+      `const response = await fetch("http://localhost:3000/api/actions/${action.id}/runs", {`,
       `  method: "POST",`,
       `  headers: { "content-type": "application/json" },`,
       `  body: JSON.stringify(${bodyText}),`,

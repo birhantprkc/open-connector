@@ -29,7 +29,7 @@ export function renderActionMarkdown(action: ActionDefinition, context: ActionMa
       code(
         "bash",
         [
-          `curl -s http://localhost:3000/api/run/${action.id} \\`,
+          `curl -s http://localhost:3000/api/actions/${action.id}/runs \\`,
           "  -H 'content-type: application/json' \\",
           `  -d '${JSON.stringify({ input: exampleInput })}'`,
         ].join("\n"),
@@ -37,7 +37,7 @@ export function renderActionMarkdown(action: ActionDefinition, context: ActionMa
       code(
         "ts",
         [
-          `const response = await fetch("http://localhost:3000/api/run/${action.id}", {`,
+          `const response = await fetch("http://localhost:3000/api/actions/${action.id}/runs", {`,
           `  method: "POST",`,
           `  headers: { "content-type": "application/json" },`,
           `  body: JSON.stringify(${indentMultiline(exampleBody, 2)}),`,

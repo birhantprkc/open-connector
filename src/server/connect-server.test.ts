@@ -1,4 +1,4 @@
-import type { IConnectionStore } from "../connection-service.ts";
+import type { IConnectionStore, StoredConnection } from "../connection-service.ts";
 import type { ActionPolicyService } from "../core/action-policy.ts";
 import type { ActionDefinition, ActionExecutor, ProviderDefinition, ResolvedCredential } from "../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../oauth/oauth-client-config-service.ts";
@@ -35,11 +35,17 @@ const echoAction: ActionDefinition = {
   outputSchema: { type: "object" },
 };
 
+const followUpAction: ActionDefinition = {
+  ...echoAction,
+  id: "example.follow_up",
+  name: "follow_up",
+};
+
 describe("ConnectServer", () => {
   it("serves catalog and standard connection errors without opening a port", async () => {
     const app = createTestServer([apiKeyProvider]).createApp();
 
-    const catalogResponse = await app.request("/api/apps/example");
+    const catalogResponse = await app.request("/api/providers/example");
     await expect(catalogResponse.json()).resolves.toMatchObject({
       service: "example",
       displayName: "Example",
@@ -62,12 +68,12 @@ describe("ConnectServer", () => {
 
   it("requires a local API token when configured", async () => {
     const app = createTestServer([apiKeyProvider], {
-      auth: { token: "local-token" },
+      auth: { adminToken: "local-token", runtimeToken: "runtime-token" },
     }).createApp();
 
     expect((await app.request("/health")).status).toBe(200);
 
-    const unauthorized = await app.request("/api/apps/example");
+    const unauthorized = await app.request("/api/providers/example");
     expect(unauthorized.status).toBe(401);
     await expect(unauthorized.json()).resolves.toEqual({
       error: {
@@ -76,13 +82,23 @@ describe("ConnectServer", () => {
       },
     });
 
-    const authorized = await app.request("/api/apps/example", {
+    const authorized = await app.request("/api/providers/example", {
       headers: { authorization: "Bearer local-token" },
     });
     expect(authorized.status).toBe(200);
     await expect(authorized.json()).resolves.toMatchObject({
       service: "example",
     });
+
+    const runtimeUnauthorized = await app.request("/v1/actions", {
+      headers: { authorization: "Bearer local-token" },
+    });
+    expect(runtimeUnauthorized.status).toBe(401);
+
+    const runtimeAuthorized = await app.request("/v1/actions", {
+      headers: { authorization: "Bearer runtime-token" },
+    });
+    expect(runtimeAuthorized.status).toBe(200);
   });
 
   it("stores redacted run log summaries for HTTP action execution", async () => {
@@ -107,7 +123,7 @@ describe("ConnectServer", () => {
       body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
     });
 
-    const response = await app.request("/api/run/example.echo", {
+    const response = await app.request("/api/actions/example.echo/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -139,6 +155,59 @@ describe("ConnectServer", () => {
     ]);
   });
 
+  it("creates named connections and runs actions with aliases", async () => {
+    const runs = new MemoryRunLogStore();
+    const app = createTestServer(
+      [
+        {
+          ...apiKeyProvider,
+          actions: [echoAction],
+        },
+      ],
+      {
+        providerLoader: new EchoProviderLoader(),
+        runs,
+      },
+    ).createApp();
+
+    const connection = await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        authType: "api_key",
+        connectionName: "work",
+        values: { apiKey: "work-key" },
+      }),
+    });
+    expect(connection.status).toBe(200);
+    await expect(connection.json()).resolves.toMatchObject({
+      service: "example",
+      connectionName: "work",
+      default: false,
+    });
+
+    const run = await app.request("/v1/actions/example.echo", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-oo-connector-alias": "work",
+      },
+      body: JSON.stringify({ input: { message: "hello" } }),
+    });
+    expect(run.status).toBe(200);
+    await expect(run.json()).resolves.toMatchObject({
+      success: true,
+      data: { message: "hello" },
+    });
+    expect(runs.list()).toMatchObject([
+      {
+        connectionProfile: {
+          displayName: "Example Account",
+        },
+      },
+    ]);
+  });
+
   it("renders agent guides with current connection and provider permissions", async () => {
     const app = createTestServer(
       [
@@ -164,7 +233,7 @@ describe("ConnectServer", () => {
       body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
     });
 
-    const response = await app.request("/api/example.echo.md");
+    const response = await app.request("/api/actions/example.echo/agent.md");
 
     expect(response.status).toBe(200);
     const markdown = await response.text();
@@ -196,7 +265,7 @@ describe("ConnectServer", () => {
       },
     ]).createApp();
 
-    const response = await app.request("/api/example.echo.md");
+    const response = await app.request("/api/actions/example.echo/agent.md");
 
     expect(response.status).toBe(200);
     const markdown = await response.text();
@@ -226,7 +295,7 @@ describe("ConnectServer", () => {
       },
     ).createApp();
 
-    const response = await app.request("/api/run/example.echo", {
+    const response = await app.request("/api/actions/example.echo/runs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ input: {} }),
@@ -247,10 +316,196 @@ describe("ConnectServer", () => {
       },
     ]);
   });
+
+  it("serves the public v1 runtime catalog and action envelope", async () => {
+    const actionWithFollowUp: ActionDefinition = {
+      ...echoAction,
+      followUpActions: ["example.follow_up"],
+    };
+    const app = createTestServer(
+      [
+        {
+          ...apiKeyProvider,
+          actions: [actionWithFollowUp, followUpAction],
+        },
+      ],
+      {
+        providerLoader: new EchoProviderLoader(),
+      },
+    ).createApp();
+
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
+    });
+
+    const providers = await app.request("/v1/providers");
+    expect(providers.status).toBe(200);
+    await expect(providers.json()).resolves.toMatchObject({
+      success: true,
+      data: [
+        {
+          service: "example",
+          displayName: "Example",
+          categories: [{ id: "Developer Tools", displayName: "Developer Tools" }],
+          authTypes: ["api_key"],
+        },
+      ],
+    });
+
+    const actionServices = await app.request("/v1/actions");
+    expect(actionServices.status).toBe(200);
+    await expect(actionServices.json()).resolves.toMatchObject({
+      success: true,
+      data: [{ service: "example" }],
+    });
+
+    const actions = await app.request("/v1/actions?service=example");
+    expect(actions.status).toBe(200);
+    await expect(actions.json()).resolves.toMatchObject({
+      success: true,
+      data: [
+        {
+          id: "example.echo",
+          service: "example",
+          followUpActions: [{ actionId: "example.follow_up" }],
+        },
+        {
+          id: "example.follow_up",
+          service: "example",
+          followUpActions: [],
+        },
+      ],
+    });
+
+    const action = await app.request("/v1/actions/example.echo");
+    expect(action.status).toBe(200);
+    await expect(action.json()).resolves.toMatchObject({
+      success: true,
+      meta: {},
+      data: {
+        id: "example.echo",
+        service: "example",
+        inputSchema: { type: "object" },
+        outputSchema: { type: "object" },
+        followUpActions: [{ actionId: "example.follow_up" }],
+        asyncLifecycle: null,
+      },
+    });
+
+    const run = await app.request("/v1/actions/example.echo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { message: "hello" } }),
+    });
+    expect(run.status).toBe(200);
+    await expect(run.json()).resolves.toMatchObject({
+      success: true,
+      message: "OK",
+      data: { message: "hello" },
+      meta: {
+        actionId: "example.echo",
+      },
+    });
+  });
+
+  it("serves v1 apps and authenticated service views without leaking credentials", async () => {
+    const app = createTestServer(
+      [
+        {
+          ...apiKeyProvider,
+          actions: [echoAction],
+        },
+      ],
+      {
+        providerLoader: new EchoProviderLoader(),
+      },
+    ).createApp();
+
+    await app.request("/api/connections/example", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authType: "api_key", values: { apiKey: "example-key" } }),
+    });
+
+    const apps = await app.request("/v1/apps");
+    expect(apps.status).toBe(200);
+    const appsBody = await apps.json();
+    expect(appsBody).toMatchObject({
+      success: true,
+      meta: {},
+      data: [
+        {
+          id: "example:default",
+          service: "example",
+          alias: "default",
+          authType: "api_key",
+          status: "active",
+          isDefault: true,
+        },
+      ],
+    });
+    expect(JSON.stringify(appsBody)).not.toContain("example-key");
+
+    const authenticated = await app.request("/v1/apps/authenticated?service=example&service=missing");
+    expect(authenticated.status).toBe(200);
+    await expect(authenticated.json()).resolves.toMatchObject({
+      success: true,
+      data: ["example"],
+    });
+  });
+
+  it("maps v1 runtime failures to stable envelopes", async () => {
+    const app = createTestServer(
+      [
+        {
+          ...apiKeyProvider,
+          actions: [echoAction],
+        },
+      ],
+      {
+        providerLoader: new EchoProviderLoader(),
+      },
+    ).createApp();
+
+    const unknown = await app.request("/v1/actions/example.missing");
+    expect(unknown.status).toBe(404);
+    await expect(unknown.json()).resolves.toMatchObject({
+      success: false,
+      errorCode: "invalid_input",
+      meta: { actionId: "example.missing" },
+    });
+
+    const missingConnection = await app.request("/v1/actions/example.echo", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-oomol-connector-alias": "work",
+      },
+      body: JSON.stringify({ input: {} }),
+    });
+    expect(missingConnection.status).toBe(404);
+    await expect(missingConnection.json()).resolves.toMatchObject({
+      success: false,
+      errorCode: "connection_not_found",
+    });
+
+    const proxy = await app.request("/v1/proxy/example", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endpoint: "/anything", method: "GET" }),
+    });
+    expect(proxy.status).toBe(501);
+    await expect(proxy.json()).resolves.toMatchObject({
+      success: false,
+      errorCode: "proxy_not_supported",
+    });
+  });
 });
 
 interface CreateTestServerOptions {
-  auth?: { token?: string };
+  auth?: { adminToken?: string; runtimeToken?: string };
   actionPolicy?: ActionPolicyService;
   providerLoader?: IProviderLoader;
   runs?: MemoryRunLogStore;
@@ -310,7 +565,10 @@ class EmptyProviderLoader implements IProviderLoader {
 
 class EchoProviderLoader implements IProviderLoader {
   async loadActionExecutor(): Promise<ActionExecutor> {
-    return async (input) => ({ ok: true, output: input });
+    return async (input, context) => {
+      await context.getCredential("example");
+      return { ok: true, output: input };
+    };
   }
 
   async loadCredentialValidators(): Promise<{
@@ -339,21 +597,32 @@ class EchoProviderLoader implements IProviderLoader {
 class MemoryConnectionStore implements IConnectionStore {
   private readonly store = new Map<string, ResolvedCredential>();
 
-  async get(service: string): Promise<ResolvedCredential | undefined> {
-    return this.store.get(service);
+  async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
+    return this.store.get(createConnectionKey(service, connectionName));
   }
 
-  async set(service: string, credential: ResolvedCredential): Promise<void> {
-    this.store.set(service, credential);
+  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+    this.store.set(createConnectionKey(service, connectionName), credential);
   }
 
-  async delete(service: string): Promise<void> {
-    this.store.delete(service);
+  async delete(service: string, connectionName: string): Promise<void> {
+    this.store.delete(createConnectionKey(service, connectionName));
   }
 
-  async list(): Promise<Array<{ service: string; credential: ResolvedCredential }>> {
-    return [...this.store.entries()].map(([service, credential]) => ({ service, credential }));
+  async list(): Promise<StoredConnection[]> {
+    return [...this.store.entries()].map(([key, credential]) => {
+      const [service, connectionName] = key.split(":");
+      return {
+        service: service!,
+        connectionName: connectionName!,
+        credential,
+      };
+    });
   }
+}
+
+function createConnectionKey(service: string, connectionName: string): string {
+  return `${service}:${connectionName}`;
 }
 
 class MemoryOAuthClientConfigStore implements IOAuthClientConfigStore {

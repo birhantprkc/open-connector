@@ -14,33 +14,88 @@ import type { IProviderLoader } from "./providers/provider-loader.ts";
 
 import { normalizeCredentialValues } from "./core/credential-fields.ts";
 
+export const defaultConnectionName = "default";
+
 /**
  * Connection summary returned to the local console.
  */
-export type ConnectionSummary = {
+export interface ConnectionSummary {
+  id: string;
   service: string;
+  connectionName: string;
   authType: AuthType;
   configured: boolean;
   virtual: boolean;
+  default: boolean;
   profile: CredentialProfile;
-};
+}
 
 /**
  * Request body for local credential connections.
  */
-export type ConnectWithCredentialInput = {
+export interface ConnectWithCredentialInput {
+  connectionName?: string;
   values?: Record<string, unknown>;
-};
+}
+
+export interface ConnectWithoutAuthInput {
+  connectionName?: string;
+}
+
+export interface ConnectionServiceOptions {
+  catalog: CatalogStore;
+  oauthCredentials?: IOAuthCredentialRefresher;
+  providerLoader: IProviderLoader;
+  store: IConnectionStore;
+}
+
+export interface StoredConnection {
+  service: string;
+  connectionName: string;
+  credential: ResolvedCredential;
+}
+
+export interface DisconnectedConnectionSummary {
+  service: string;
+  connectionName: string;
+  configured: false;
+}
 
 /**
  * Storage contract for local provider connections.
  */
 export interface IConnectionStore {
-  get(service: string): Promise<ResolvedCredential | undefined>;
-  set(service: string, credential: ResolvedCredential): Promise<void>;
-  delete(service: string): Promise<void>;
-  list(): Promise<Array<{ service: string; credential: ResolvedCredential }>>;
+  get(service: string, connectionName: string): Promise<ResolvedCredential | undefined>;
+  set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void>;
+  delete(service: string, connectionName: string): Promise<void>;
+  list(): Promise<StoredConnection[]>;
 }
+
+interface ServiceConnection {
+  connectionName: string;
+  credential: ResolvedCredential;
+}
+
+interface ApiKeyCredentialValidationInput {
+  apiKey: string;
+  values: Record<string, string>;
+}
+
+interface CustomCredentialValidationInput {
+  values: Record<string, string>;
+}
+
+interface CredentialRuntimeData {
+  profile: CredentialProfile;
+  metadata: Record<string, unknown>;
+}
+
+interface PreviousCredentialRuntimeData {
+  profile: CredentialProfile;
+  metadata: Record<string, unknown>;
+}
+
+type CredentialValidatorCall = () => Promise<CredentialValidationResult | void> | undefined;
 
 /**
  * Coordinates local provider connection state.
@@ -54,12 +109,7 @@ export class ConnectionService {
   private readonly providerLoader: IProviderLoader;
   private readonly store: IConnectionStore;
 
-  constructor(input: {
-    catalog: CatalogStore;
-    oauthCredentials?: IOAuthCredentialRefresher;
-    providerLoader: IProviderLoader;
-    store: IConnectionStore;
-  }) {
+  constructor(input: ConnectionServiceOptions) {
     this.catalog = input.catalog;
     this.oauthCredentials = input.oauthCredentials;
     this.providerLoader = input.providerLoader;
@@ -67,37 +117,98 @@ export class ConnectionService {
   }
 
   async listConnections(): Promise<ConnectionSummary[]> {
-    const configured = new Map(
-      (await this.store.list()).map((connection) => [connection.service, connection.credential]),
+    const configured = await this.store.list();
+    const configuredByService = new Map<string, ServiceConnection[]>();
+    for (const connection of configured) {
+      const serviceConnections = configuredByService.get(connection.service) ?? [];
+      serviceConnections.push({
+        connectionName: connection.connectionName,
+        credential: connection.credential,
+      });
+      configuredByService.set(connection.service, serviceConnections);
+    }
+
+    return this.catalog.providers.flatMap((provider) => {
+      const connections = configuredByService.get(provider.service) ?? [];
+      if (connections.length > 0) {
+        return connections.map((connection) =>
+          this.createConfiguredConnectionSummary(provider, connection.connectionName, connection.credential),
+        );
+      }
+
+      return this.supportsAuth(provider, "no_auth")
+        ? [this.createNoAuthConnectionSummary(provider, defaultConnectionName)]
+        : [];
+    });
+  }
+
+  async listConnectionsByService(service: string): Promise<ConnectionSummary[]> {
+    const provider = this.getProvider(service);
+    const connections = (await this.store.list()).filter((connection) => connection.service === service);
+    if (connections.length > 0) {
+      return connections.map((connection) =>
+        this.createConfiguredConnectionSummary(provider, connection.connectionName, connection.credential),
+      );
+    }
+
+    return this.supportsAuth(provider, "no_auth")
+      ? [this.createNoAuthConnectionSummary(provider, defaultConnectionName)]
+      : [];
+  }
+
+  async listAuthenticatedServices(services: string[]): Promise<string[]> {
+    const configured = await this.store.list();
+    const authenticated = new Set(
+      configured
+        .filter((connection) => connection.credential.authType !== "no_auth")
+        .map((connection) => connection.service),
     );
-
-    return this.catalog.providers
-      .map((provider) => this.toConnectionSummary(provider, configured.get(provider.service)))
-      .filter((summary): summary is ConnectionSummary => summary != null);
+    return services.filter((service) => authenticated.has(service));
   }
 
-  async getConnectionSummary(service: string): Promise<ConnectionSummary | undefined> {
+  async getConnectionSummary(service: string, connectionName?: string): Promise<ConnectionSummary | undefined> {
     const provider = this.getProvider(service);
-    return this.toConnectionSummary(provider, await this.store.get(service));
+    const name = normalizeConnectionName(connectionName);
+    const stored = await this.store.get(service, name);
+    if (!stored && connectionName && !this.supportsAuth(provider, "no_auth")) {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${name}.`);
+    }
+
+    return stored
+      ? this.createConfiguredConnectionSummary(provider, name, stored)
+      : this.supportsAuth(provider, "no_auth")
+        ? this.createNoAuthConnectionSummary(provider, name)
+        : undefined;
   }
 
-  async getCredential(service: string): Promise<ResolvedCredential | undefined> {
+  async getCredential(service: string, connectionName?: string): Promise<ResolvedCredential | undefined> {
     const provider = this.getProvider(service);
-    const stored = await this.store.get(service);
+    const name = normalizeConnectionName(connectionName);
+    const stored = await this.store.get(service, name);
     if (stored) {
-      return stored.authType === "oauth2" ? await this.resolveOAuthCredential(service, stored) : stored;
+      return stored.authType === "oauth2" ? await this.resolveOAuthCredential(service, name, stored) : stored;
+    }
+
+    if (connectionName && !this.supportsAuth(provider, "no_auth")) {
+      throw new ConnectionError("connection_not_found", `${service} connection not found: ${name}.`);
     }
 
     return this.supportsAuth(provider, "no_auth") ? { authType: "no_auth" } : undefined;
   }
 
-  async connectWithoutAuth(service: string): Promise<ConnectionSummary> {
+  forConnection(connectionName?: string): Pick<ConnectionService, "getCredential"> {
+    return {
+      getCredential: (service: string) => this.getCredential(service, connectionName),
+    };
+  }
+
+  async connectWithoutAuth(service: string, input: ConnectWithoutAuthInput = {}): Promise<ConnectionSummary> {
     const provider = this.getProvider(service);
     if (!this.supportsAuth(provider, "no_auth")) {
       throw new ConnectionError("unsupported_auth_type", `${service} does not support no_auth.`);
     }
 
-    return this.toConnectionSummary(provider, undefined)!;
+    return this.createNoAuthConnectionSummary(provider, normalizeConnectionName(input.connectionName));
   }
 
   async connectWithApiKey(service: string, input: ConnectWithCredentialInput): Promise<ConnectionSummary> {
@@ -125,9 +236,10 @@ export class ConnectionService {
         await this.validateApiKeyCredential(service, { apiKey, values }),
       ),
     };
-    await this.store.set(service, credential);
+    const connectionName = normalizeConnectionName(input.connectionName);
+    await this.store.set(service, connectionName, credential);
 
-    return this.toConnectionSummary(provider, credential)!;
+    return this.createStoredConnectionSummary(provider, connectionName, credential);
   }
 
   async connectWithCustomCredential(service: string, input: ConnectWithCredentialInput): Promise<ConnectionSummary> {
@@ -152,21 +264,24 @@ export class ConnectionService {
         await this.validateCustomCredential(service, { values }),
       ),
     };
-    await this.store.set(service, credential);
+    const connectionName = normalizeConnectionName(input.connectionName);
+    await this.store.set(service, connectionName, credential);
 
-    return this.toConnectionSummary(provider, credential)!;
+    return this.createStoredConnectionSummary(provider, connectionName, credential);
   }
 
   async setOAuthCredential(
     service: string,
     credential: Extract<ResolvedCredential, { authType: "oauth2" }>,
+    connectionNameInput?: string,
   ): Promise<ConnectionSummary> {
     const provider = this.getProvider(service);
     if (!this.supportsAuth(provider, "oauth2")) {
       throw new ConnectionError("unsupported_auth_type", `${service} does not support oauth2.`);
     }
 
-    await this.store.set(service, {
+    const connectionName = normalizeConnectionName(connectionNameInput);
+    const storedCredential = {
       ...credential,
       ...this.mergeCredentialRuntimeData(
         provider,
@@ -174,45 +289,63 @@ export class ConnectionService {
         credential,
         await this.validateOAuthCredential(service, credential),
       ),
-    });
-    return this.toConnectionSummary(provider, await this.store.get(service))!;
+    };
+    await this.store.set(service, connectionName, storedCredential);
+    return this.createStoredConnectionSummary(provider, connectionName, storedCredential);
   }
 
-  async disconnect(service: string): Promise<ConnectionSummary | { service: string; configured: false }> {
-    await this.store.delete(service);
+  async disconnect(
+    service: string,
+    connectionNameInput?: string,
+  ): Promise<ConnectionSummary | DisconnectedConnectionSummary> {
+    const connectionName = normalizeConnectionName(connectionNameInput);
+    await this.store.delete(service, connectionName);
     const provider = this.catalog.providers.find((provider) => provider.service === service);
     if (provider && this.supportsAuth(provider, "no_auth")) {
-      return this.connectWithoutAuth(service);
+      return this.connectWithoutAuth(service, { connectionName });
     }
 
-    return { service, configured: false };
+    return { service, connectionName, configured: false };
   }
 
-  private toConnectionSummary(
+  private createConfiguredConnectionSummary(
     provider: ProviderDefinition,
-    credential: ResolvedCredential | undefined,
-  ): ConnectionSummary | undefined {
-    if (credential && credential.authType !== "no_auth") {
-      return {
-        service: provider.service,
-        authType: credential.authType,
-        configured: true,
-        virtual: false,
-        profile: credential.profile,
-      };
-    }
+    connectionName: string,
+    credential: ResolvedCredential,
+  ): ConnectionSummary {
+    return credential.authType === "no_auth"
+      ? this.createNoAuthConnectionSummary(provider, connectionName)
+      : this.createStoredConnectionSummary(provider, connectionName, credential);
+  }
 
-    if (this.supportsAuth(provider, "no_auth")) {
-      return {
-        service: provider.service,
-        authType: "no_auth",
-        configured: true,
-        virtual: true,
-        profile: this.createNoAuthProfile(provider),
-      };
-    }
+  private createStoredConnectionSummary(
+    provider: ProviderDefinition,
+    connectionName: string,
+    credential: Exclude<ResolvedCredential, { authType: "no_auth" }>,
+  ): ConnectionSummary {
+    return {
+      id: createConnectionId(provider.service, connectionName),
+      service: provider.service,
+      connectionName,
+      authType: credential.authType,
+      configured: true,
+      virtual: false,
+      default: connectionName === defaultConnectionName,
+      profile: credential.profile,
+    };
+  }
 
-    return undefined;
+  private createNoAuthConnectionSummary(provider: ProviderDefinition, connectionName: string): ConnectionSummary {
+    return {
+      id: createConnectionId(provider.service, connectionName),
+      service: provider.service,
+      connectionName,
+      authType: "no_auth",
+      configured: true,
+      virtual: true,
+      default: connectionName === defaultConnectionName,
+      profile: this.createNoAuthProfile(provider),
+    };
   }
 
   private getProvider(service: string): ProviderDefinition {
@@ -248,7 +381,7 @@ export class ConnectionService {
 
   private async validateApiKeyCredential(
     service: string,
-    input: { apiKey: string; values: Record<string, string> },
+    input: ApiKeyCredentialValidationInput,
   ): Promise<CredentialValidationResult> {
     const validators = await this.providerLoader.loadCredentialValidators(service);
     return this.runCredentialValidator(service, () => validators?.apiKey?.(input, { fetcher: fetch }));
@@ -256,7 +389,7 @@ export class ConnectionService {
 
   private async validateCustomCredential(
     service: string,
-    input: { values: Record<string, string> },
+    input: CustomCredentialValidationInput,
   ): Promise<CredentialValidationResult> {
     const validators = await this.providerLoader.loadCredentialValidators(service);
     return this.runCredentialValidator(service, () => validators?.customCredential?.(input, { fetcher: fetch }));
@@ -272,6 +405,7 @@ export class ConnectionService {
 
   private async resolveOAuthCredential(
     service: string,
+    connectionName: string,
     credential: Extract<ResolvedCredential, { authType: "oauth2" }>,
   ): Promise<Extract<ResolvedCredential, { authType: "oauth2" }>> {
     if (!isOAuthCredentialExpired(credential)) {
@@ -293,13 +427,13 @@ export class ConnectionService {
     }
 
     const nextCredential = await this.oauthCredentials.refresh(service, credential);
-    await this.store.set(service, nextCredential);
+    await this.store.set(service, connectionName, nextCredential);
     return nextCredential;
   }
 
   private async runCredentialValidator(
     service: string,
-    validate: () => Promise<{ metadata?: Record<string, unknown> } | void> | undefined,
+    validate: CredentialValidatorCall,
   ): Promise<CredentialValidationResult> {
     try {
       return (await validate()) ?? {};
@@ -316,7 +450,7 @@ export class ConnectionService {
     authType: Exclude<AuthType, "no_auth">,
     credentialValues: Record<string, string>,
     validation: CredentialValidationResult,
-  ): { profile: CredentialProfile; metadata: Record<string, unknown> } {
+  ): CredentialRuntimeData {
     return {
       profile: this.createCredentialProfile(provider, authType, credentialValues, validation),
       metadata: validation.metadata ?? {},
@@ -328,7 +462,7 @@ export class ConnectionService {
     authType: Exclude<AuthType, "no_auth">,
     credential: Extract<ResolvedCredential, { authType: "oauth2" }>,
     validation: CredentialValidationResult,
-  ): { profile: CredentialProfile; metadata: Record<string, unknown> } {
+  ): CredentialRuntimeData {
     return {
       profile: this.createCredentialProfile(provider, authType, {}, validation, {
         profile: credential.profile,
@@ -346,7 +480,7 @@ export class ConnectionService {
     authType: Exclude<AuthType, "no_auth">,
     credentialValues: Record<string, string>,
     validation: CredentialValidationResult,
-    previous?: { profile: CredentialProfile; metadata: Record<string, unknown> },
+    previous?: PreviousCredentialRuntimeData,
   ): CredentialProfile {
     const accountId =
       validation.profile?.accountId ??
@@ -423,6 +557,22 @@ function createApiKeyFields(auth: ApiKeyAuthDefinition): CredentialDefinition[] 
     },
     ...(auth.extraFields ?? []),
   ];
+}
+
+export function normalizeConnectionName(value: string | undefined): string {
+  const name = value?.trim() || defaultConnectionName;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) {
+    throw new ConnectionError(
+      "invalid_connection_name",
+      "connectionName must start with a letter or digit and contain only letters, digits, underscores, or hyphens.",
+    );
+  }
+
+  return name;
+}
+
+function createConnectionId(service: string, connectionName: string): string {
+  return `${service}:${connectionName}`;
 }
 
 function normalizeGrantedScopes(value: string[] | undefined): string[] {

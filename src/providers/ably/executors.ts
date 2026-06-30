@@ -82,10 +82,7 @@ export const ablyActionHandlers: Record<AblyActionName, AblyActionHandler> = {
   async delete_channel_subscription(input, context): Promise<unknown> {
     const query = buildPushSubscriptionQuery(input);
     if (!query.has("deviceId") && !query.has("clientId")) {
-      throw new ProviderRequestError(
-        400,
-        "device_id or client_id is required to delete an Ably channel subscription",
-      );
+      throw new ProviderRequestError(400, "device_id or client_id is required to delete an Ably channel subscription");
     }
     if (query.has("deviceId") && query.has("clientId")) {
       throw new ProviderRequestError(

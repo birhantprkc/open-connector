@@ -16,10 +16,10 @@ await fetch("http://localhost:3000/api/oauth/configs/gmail", {
   body: JSON.stringify({ clientId, clientSecret }),
 });
 
-const response = await fetch("http://localhost:3000/api/connections/gmail/oauth/start", {
+const response = await fetch("http://localhost:3000/api/oauth/authorizations", {
   method: "POST",
   headers: localHeaders({ "content-type": "application/json" }),
-  body: JSON.stringify({}),
+  body: JSON.stringify({ service: "gmail" }),
 });
 const started = (await response.json()) as { authorizationUrl?: string };
 

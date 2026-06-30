@@ -9,19 +9,26 @@ const authCookieName = "oomol_connect_api_token";
  * Optional local API authentication for HTTP, web console, and MCP callers.
  */
 export type LocalAuthOptions = {
-  token?: string;
+  adminToken?: string;
+  runtimeToken?: string;
 };
 
+type AuthScope = "admin" | "runtime";
+
 export function createLocalAuthMiddleware(options: LocalAuthOptions): MiddlewareHandler {
-  const token = options.token?.trim();
-  if (!token) {
+  const adminToken = normalizeToken(options.adminToken);
+  const runtimeToken = normalizeToken(options.runtimeToken);
+  if (!adminToken && !runtimeToken) {
     return async (_context, next) => {
       await next();
     };
   }
 
   return async (context, next) => {
-    if (isPublicPath(context.req.path) || hasValidToken(context, token)) {
+    if (
+      isPublicPath(context.req.path) ||
+      hasValidToken(context, tokenForScope(options, readAuthScope(context.req.path)))
+    ) {
       await next();
       return;
     }
@@ -31,7 +38,7 @@ export function createLocalAuthMiddleware(options: LocalAuthOptions): Middleware
 }
 
 export function installLocalAuthCookie(context: Context, options: LocalAuthOptions): void {
-  const token = options.token?.trim();
+  const token = normalizeToken(options.adminToken);
   if (!token) {
     return;
   }
@@ -48,11 +55,30 @@ function isPublicPath(path: string): boolean {
   return path === "/health" || path.startsWith("/oauth/callback/");
 }
 
-function hasValidToken(context: Context, token: string): boolean {
+function hasValidToken(context: Context, token: string | undefined): boolean {
+  if (!token) {
+    return true;
+  }
+
   const authorization = context.req.header("authorization") ?? "";
   if (authorization === `Bearer ${token}`) {
     return true;
   }
 
   return getCookie(context, authCookieName) === token;
+}
+
+function normalizeToken(token: string | undefined): string | undefined {
+  const value = token?.trim();
+  return value ? value : undefined;
+}
+
+function readAuthScope(path: string): AuthScope {
+  return path.startsWith("/mcp") || path.startsWith("/v1/") ? "runtime" : "admin";
+}
+
+function tokenForScope(options: LocalAuthOptions, scope: AuthScope): string | undefined {
+  const adminToken = normalizeToken(options.adminToken);
+  const runtimeToken = normalizeToken(options.runtimeToken);
+  return scope === "runtime" ? (runtimeToken ?? adminToken) : adminToken;
 }

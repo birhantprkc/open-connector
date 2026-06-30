@@ -1,10 +1,10 @@
-import type { IConnectionStore } from "../connection-service.ts";
+import type { IConnectionStore, StoredConnection } from "../connection-service.ts";
 import type { ActionExecutor, CredentialValidators, ProviderDefinition, ResolvedCredential } from "../core/types.ts";
 import type { IProviderLoader } from "../providers/provider-loader.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "./oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "./oauth-flow-service.ts";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCatalogStore } from "../catalog-store.ts";
 import { ConnectionService } from "../connection-service.ts";
 import { OAuthClientConfigService } from "./oauth-client-config-service.ts";
@@ -38,6 +38,10 @@ const oauthProvider: ProviderDefinition = {
 };
 
 describe("OAuthFlowService", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("builds an authorization URL from user-provided client config", async () => {
     const services = createServices([oauthProvider]);
     await services.clientConfigs.upsertConfig({
@@ -55,7 +59,7 @@ describe("OAuthFlowService", () => {
       },
     });
 
-    const started = await services.flow.startAuthorization("example");
+    const started = await services.flow.startAuthorization({ service: "example", connectionName: "work" });
     const authorizationUrl = new URL(started.authorizationUrl);
 
     expect(authorizationUrl.origin).toBe("https://example.com");
@@ -63,12 +67,16 @@ describe("OAuthFlowService", () => {
     expect(authorizationUrl.searchParams.get("redirect_uri")).toBe("http://localhost:3000/oauth/callback/example");
     expect(authorizationUrl.searchParams.get("scope")).toBe("read write");
     expect(authorizationUrl.searchParams.get("state")).toBe(started.state);
+    expect(await services.states.take(started.state)).toMatchObject({
+      service: "example",
+      connectionName: "work",
+    });
   });
 
   it("requires OAuth client config before authorization", async () => {
     const services = createServices([oauthProvider]);
 
-    await expect(services.flow.startAuthorization("example")).rejects.toMatchObject({
+    await expect(services.flow.startAuthorization({ service: "example" })).rejects.toMatchObject({
       code: "oauth_client_config_required",
     });
   });
@@ -87,11 +95,41 @@ describe("OAuthFlowService", () => {
       message: "tenant is required.",
     });
   });
+
+  it("stores completed OAuth credentials under the requested connection name", async () => {
+    const services = createServices([oauthProvider]);
+    await services.clientConfigs.upsertConfig({
+      service: "example",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      extra: {
+        tenant: "default",
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ access_token: "access-token", token_type: "Bearer" })),
+    );
+
+    const started = await services.flow.startAuthorization({ service: "example", connectionName: "work" });
+    await expect(services.flow.completeAuthorization({ state: started.state, code: "code" })).resolves.toEqual({
+      service: "example",
+      connected: true,
+    });
+
+    await expect(services.connections.getCredential("example", "work")).resolves.toMatchObject({
+      authType: "oauth2",
+      accessToken: "access-token",
+    });
+    await expect(services.connections.getCredential("example")).resolves.toBeUndefined();
+  });
 });
 
 function createServices(providers: ProviderDefinition[]): {
   clientConfigs: OAuthClientConfigService;
+  connections: ConnectionService;
   flow: OAuthFlowService;
+  states: MemoryOAuthStateStore;
 } {
   const catalog = createCatalogStore(providers);
   const connections = new ConnectionService({
@@ -105,13 +143,16 @@ function createServices(providers: ProviderDefinition[]): {
     store: new MemoryOAuthClientConfigStore(),
   });
 
+  const states = new MemoryOAuthStateStore();
   return {
     clientConfigs,
+    connections,
     flow: new OAuthFlowService({
       clientConfigs,
       connections,
-      states: new MemoryOAuthStateStore(),
+      states,
     }),
+    states,
   };
 }
 
@@ -128,21 +169,32 @@ class EmptyProviderLoader implements IProviderLoader {
 class MemoryConnectionStore implements IConnectionStore {
   private readonly store = new Map<string, ResolvedCredential>();
 
-  async get(service: string): Promise<ResolvedCredential | undefined> {
-    return this.store.get(service);
+  async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
+    return this.store.get(createConnectionKey(service, connectionName));
   }
 
-  async set(service: string, credential: ResolvedCredential): Promise<void> {
-    this.store.set(service, credential);
+  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+    this.store.set(createConnectionKey(service, connectionName), credential);
   }
 
-  async delete(service: string): Promise<void> {
-    this.store.delete(service);
+  async delete(service: string, connectionName: string): Promise<void> {
+    this.store.delete(createConnectionKey(service, connectionName));
   }
 
-  async list(): Promise<Array<{ service: string; credential: ResolvedCredential }>> {
-    return [...this.store.entries()].map(([service, credential]) => ({ service, credential }));
+  async list(): Promise<StoredConnection[]> {
+    return [...this.store.entries()].map(([key, credential]) => {
+      const [service, connectionName] = key.split(":");
+      return {
+        service: service!,
+        connectionName: connectionName!,
+        credential,
+      };
+    });
   }
+}
+
+function createConnectionKey(service: string, connectionName: string): string {
+  return `${service}:${connectionName}`;
 }
 
 class MemoryOAuthClientConfigStore implements IOAuthClientConfigStore {

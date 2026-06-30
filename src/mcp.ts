@@ -233,11 +233,12 @@ async function executeAction(
     };
   }
 
-  return options.actions.run({
+  const run = await options.actions.run({
     actionId,
     input,
     caller: "mcp",
   });
+  return run?.result;
 }
 
 function summarizeInputSchema(schema: JsonSchema): unknown {

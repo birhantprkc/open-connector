@@ -1,30 +1,24 @@
 # OOMOL Connect
 
-OOMOL Connect is a local-first connector and action server for browsing app/action catalogs,
-configuring local credentials, testing actions, and exposing actions to agents through HTTP and MCP.
+OOMOL Connect is a local connector runtime for letting agents use external services without handing
+raw provider tokens to the agent.
 
-The project is built for agent integrations: keep credentials local, expose typed app actions, and
-run those actions through direct HTTP calls or MCP-compatible agents.
+You run it next to the agent, configure provider credentials locally, discover typed actions, and
+execute those actions through HTTP or MCP. Provider credentials stay in your local SQLite database;
+agents see action schemas, provider scopes, and safe account identity such as the connected user or
+workspace name.
 
-Instead of giving agents raw provider tokens, OOMOL Connect gives them action schemas and a local
-execution boundary.
+## What You Can Build With It
 
-## What Is Included
-
-- Local app and action catalog browsing
-- Local credential configuration
-- Agent-visible connection identity and provider scope metadata
-- SQLite-backed local runtime storage
-- Action execution through HTTP
-- MCP endpoint and tool metadata for agents
-- Optional bearer-token gate for local HTTP and MCP access
-- Optional action allow/block policy for agent execution
-- OpenAPI reference at `/docs`
-- A Vite local console under `web/`
-- Provider definitions that can be catalog-only or locally executable
-- Lazy provider executor loading
+- Give an agent a local tool boundary instead of direct API keys.
+- Configure one shared connection once, then let agents call provider actions by schema.
+- Use API key, custom credential, OAuth2, or no-auth providers from the same local runtime.
+- Browse providers and action contracts through HTTP, OpenAPI, MCP metadata, or the web console.
+- Add open-source provider definitions and lazy-loaded local executors.
 
 ## Quick Start
+
+Install dependencies, generate the provider catalog, run tests, and start the local runtime:
 
 ```bash
 npm install
@@ -33,16 +27,16 @@ npm test
 npm run dev
 ```
 
-Open the API reference:
+Open the local API reference:
 
 ```text
 http://localhost:3000/docs
 ```
 
-Try a Hacker News action:
+Run a no-auth action through the public runtime API:
 
 ```bash
-curl -s http://localhost:3000/api/run/hackernews.get_top_stories \
+curl -s -X POST http://localhost:3000/v1/actions/hackernews.get_top_stories \
   -H 'content-type: application/json' \
   -d '{"input":{}}'
 ```
@@ -63,14 +57,208 @@ http://localhost:3000
 Runtime state is stored in `./data/connect.sqlite` by default. Use `OOMOL_CONNECT_DATA_DIR` to point
 the local database somewhere else.
 
-Set `OOMOL_CONNECT_ENCRYPTION_KEY` to encrypt stored credentials and OAuth client secrets.
-Set `OOMOL_CONNECT_API_TOKEN` to require `Authorization: Bearer <token>` for API and MCP requests.
+## Main Workflow
+
+### 1. Protect The Local Runtime
+
+By default, the server binds to `127.0.0.1`. Set an admin token when anything outside your own
+browser or shell can reach the local admin API or web console:
+
+```bash
+OOMOL_CONNECT_ADMIN_TOKEN="replace-with-an-admin-token" npm run dev
+```
+
+Then admin HTTP clients must send:
+
+```text
+Authorization: Bearer replace-with-an-admin-token
+```
+
+Set `OOMOL_CONNECT_RUNTIME_TOKEN` separately for `/v1` and `/mcp` callers. If you only set the
+legacy `OOMOL_CONNECT_API_TOKEN`, it is used as both admin and runtime token.
+
+Set `OOMOL_CONNECT_ENCRYPTION_KEY` to encrypt stored provider credentials and OAuth client secrets:
+
+```bash
+OOMOL_CONNECT_ENCRYPTION_KEY="replace-with-a-long-random-secret" npm run dev
+```
+
+The bundled web console receives a same-site local cookie from the runtime, so it continues to work
+when API-token authentication is enabled.
+
+### 2. Discover Providers And Actions
+
+List providers:
+
+```bash
+curl -s http://localhost:3000/v1/providers
+```
+
+List services that have actions:
+
+```bash
+curl -s http://localhost:3000/v1/actions
+```
+
+List action contracts for one service:
+
+```bash
+curl -s "http://localhost:3000/v1/actions?service=github"
+```
+
+Inspect one action:
+
+```bash
+curl -s http://localhost:3000/v1/actions/github.get_authenticated_user
+```
+
+For local development and agent prompts, the admin API can return a compact markdown guide with the
+action input schema, scopes, provider permissions, current connection identity, and execution
+examples:
+
+```bash
+curl -s http://localhost:3000/api/actions/github.get_authenticated_user/agent.md
+```
+
+### 3. Configure An API Key Connection
+
+Provider credential fields are declared by the provider catalog. Inspect the provider first:
+
+```bash
+curl -s http://localhost:3000/api/providers/github
+```
+
+Create or replace the default API key connection:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/connections/github \
+  -H 'content-type: application/json' \
+  -d '{"authType":"api_key","values":{"apiKey":"github_pat_..."}}'
+```
+
+Create a named connection by adding `connectionName`:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/connections/github \
+  -H 'content-type: application/json' \
+  -d '{"authType":"api_key","connectionName":"work","values":{"apiKey":"github_pat_..."}}'
+```
+
+The default API key field is `values.apiKey`. Some providers declare extra fields in their
+`auth[].extraFields`; unknown fields are rejected so scripts and provider definitions fail fast when
+they drift.
+
+Check configured connections and the safe account identity exposed to agents:
+
+```bash
+curl -s http://localhost:3000/api/connections
+```
+
+### 4. Configure An OAuth2 Connection
+
+OAuth2 providers use your own provider OAuth app. First list OAuth-capable providers and copy the
+`expectedRedirectUri` for the service you want:
+
+```bash
+curl -s http://localhost:3000/api/oauth/configs
+```
+
+With the default port, GitHub expects:
+
+```text
+http://localhost:3000/oauth/callback/github
+```
+
+If you change `PORT`, `HOST`, or run behind a tunnel, set `OOMOL_CONNECT_ORIGIN` before starting the
+runtime. The callback URL shown in `expectedRedirectUri` is the exact URL to paste into the provider
+OAuth app.
+
+Store the OAuth client credentials locally:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/oauth/configs/github \
+  -H 'content-type: application/json' \
+  -d '{"clientId":"...","clientSecret":"..."}'
+```
+
+Start authorization:
+
+```bash
+curl -s -X POST http://localhost:3000/api/oauth/authorizations \
+  -H 'content-type: application/json' \
+  -d '{"service":"github"}'
+```
+
+Open the returned `authorizationUrl` in a browser. After the provider redirects back to the local
+callback URL, the runtime stores the OAuth credential as the default connection. Add
+`"connectionName":"work"` to the authorization request to store the OAuth result as a named
+connection.
+
+### 5. Execute Actions
+
+Execute an action through the public runtime API:
+
+```bash
+curl -s -X POST http://localhost:3000/v1/actions/github.get_authenticated_user \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+When `OOMOL_CONNECT_RUNTIME_TOKEN` is enabled, include the runtime bearer token:
+
+```bash
+curl -s -X POST http://localhost:3000/v1/actions/github.get_authenticated_user \
+  -H 'authorization: Bearer replace-with-a-runtime-token' \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+If a service has an existing named connection, select it with `x-oo-connector-alias`:
+
+```bash
+curl -s -X POST http://localhost:3000/v1/actions/github.get_authenticated_user \
+  -H 'x-oo-connector-alias: work' \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+The `alias` query parameter is also accepted:
+
+```bash
+curl -s -X POST "http://localhost:3000/v1/actions/github.get_authenticated_user?alias=work" \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+Recent local runs are available from:
+
+```bash
+curl -s http://localhost:3000/api/runs
+```
+
 Use `OOMOL_CONNECT_ALLOWED_ACTIONS` and `OOMOL_CONNECT_BLOCKED_ACTIONS` to constrain which actions
 agents can execute.
 
-Agents can inspect provider capabilities before execution. Action catalog entries include provider
-scopes and permissions, connection summaries include the current provider account identity, and run
-logs record which account profile was used.
+### 6. Use MCP Or OpenAPI
+
+MCP clients can connect to:
+
+```text
+http://localhost:3000/mcp
+```
+
+Discovery-oriented MCP tool metadata is available at:
+
+```bash
+curl -s http://localhost:3000/mcp/tools
+```
+
+OpenAPI is available at:
+
+```text
+http://localhost:3000/openapi.json
+http://localhost:3000/docs
+```
 
 ## Project Layout
 
@@ -120,16 +308,46 @@ npm run build
 Provider definitions generate catalog JSON. Provider executors are loaded only when one of that
 provider's actions is executed.
 
-## API
+## Runtime API
 
-The local server currently exposes:
+Agent and SDK-style clients should call the `/v1` runtime API. It returns a uniform JSON envelope:
+
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": {},
+  "meta": {}
+}
+```
+
+The public runtime API exposes:
+
+- `GET /v1/health`
+- `GET /v1/providers`
+- `GET /v1/actions`
+- `GET /v1/actions?service=<service>`
+- `GET /v1/actions/:actionId`
+- `POST /v1/actions/:actionId`
+- `GET /v1/apps`
+- `GET /v1/apps/services/:service`
+- `GET /v1/apps/authenticated`
+- `POST /v1/proxy/:service`
+
+`POST /v1/proxy/:service` currently returns `proxy_not_supported` until a provider proxy runtime is
+implemented.
+
+## Local Admin API
+
+Local admin endpoints are used by the web console, examples, and setup scripts:
 
 - `GET /health`
-- `GET /api/apps`
-- `GET /api/apps/:service`
+- `GET /api/providers`
+- `GET /api/providers/:service`
 - `GET /api/actions`
 - `GET /api/actions/:actionId`
-- `GET /api/:actionId.md`
+- `GET /api/actions/:actionId/agent.md`
+- `POST /api/actions/:actionId/runs`
 - `GET /api/connections`
 - `PUT /api/connections/:service`
 - `DELETE /api/connections/:service`
@@ -139,7 +357,6 @@ The local server currently exposes:
 - `POST /api/oauth/authorizations`
 - `GET /oauth/callback/:service`
 - `GET /api/runs`
-- `POST /api/run/:actionId`
 - `POST /mcp`
 - `GET /mcp/tools`
 - `GET /openapi.json`

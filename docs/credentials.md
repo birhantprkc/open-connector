@@ -31,7 +31,7 @@ recovered.
 Without `OOMOL_CONNECT_ENCRYPTION_KEY`, the runtime stays usable for local development and prints a
 startup warning. In that mode, treat `connect.sqlite` as a sensitive local file.
 
-## Credential fields
+## Credential Fields
 
 Credential fields are declared by each provider's catalog `auth` metadata. The runtime treats that
 metadata as the contract for local API requests:
@@ -45,7 +45,13 @@ All submitted string values are trimmed. Empty strings are treated as missing. U
 fields are rejected instead of being silently stored, because credential forms, scripts, and provider
 definitions should fail fast when they drift.
 
-## Connection identity
+Inspect a provider before writing setup scripts:
+
+```bash
+curl -s http://localhost:3000/api/providers/github
+```
+
+## Connection Identity
 
 When a provider can cheaply validate credentials against a current-user or current-account endpoint,
 its validator stores a stable connection profile:
@@ -58,17 +64,43 @@ The runtime exposes this profile in `/api/connections`, MCP action discovery, ac
 and recent run logs. Agents should use it to understand which account an action will run as; raw
 provider tokens are never exposed.
 
-## API key example
+Check current connections:
 
 ```bash
-curl -s -X PUT http://localhost:3000/api/connections/example \
+curl -s http://localhost:3000/api/connections
+```
+
+## API Key Connections
+
+Create or replace the default API key connection:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/connections/github \
   -H 'content-type: application/json' \
-  -d '{"authType":"api_key","values":{"apiKey":"...","accountId":"..."}}'
+  -d '{"authType":"api_key","values":{"apiKey":"github_pat_..."}}'
+```
+
+Create or replace a named API key connection:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/connections/github \
+  -H 'content-type: application/json' \
+  -d '{"authType":"api_key","connectionName":"work","values":{"apiKey":"github_pat_..."}}'
 ```
 
 The accepted keys are `apiKey` plus the provider's `auth[].extraFields`.
 
-## Custom credential example
+Execute an action with the default connection:
+
+```bash
+curl -s -X POST http://localhost:3000/v1/actions/github.get_authenticated_user \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+## Custom Credential Connections
+
+Create or replace the default custom credential connection:
 
 ```bash
 curl -s -X PUT http://localhost:3000/api/connections/example \
@@ -78,34 +110,89 @@ curl -s -X PUT http://localhost:3000/api/connections/example \
 
 The accepted keys come from the provider's `auth[].fields`.
 
-## OAuth client configuration
+## OAuth2 Connections
 
-Open-source users provide their own provider OAuth app. Configure that app to redirect back to the
-`expectedRedirectUri` returned by:
+OAuth2 providers require your own provider OAuth app. List OAuth-capable providers and copy the
+`expectedRedirectUri` for the service:
 
 ```bash
 curl -s http://localhost:3000/api/oauth/configs
 ```
 
-Then store the local client configuration:
+Paste that exact callback URL into the provider OAuth app. With the default port, GitHub uses:
 
-```bash
-curl -s -X PUT http://localhost:3000/api/oauth/configs/example \
-  -H 'content-type: application/json' \
-  -d '{"clientId":"...","clientSecret":"...","extra":{"tenant":"..."}}'
+```text
+http://localhost:3000/oauth/callback/github
 ```
 
-Start authorization with:
+If the browser reaches the runtime through another origin, set `OOMOL_CONNECT_ORIGIN` before
+starting the runtime:
+
+```bash
+OOMOL_CONNECT_ORIGIN="https://your-tunnel.example" npm run dev
+```
+
+Then use the new `expectedRedirectUri` returned by `/api/oauth/configs`.
+
+Store the local client configuration:
+
+```bash
+curl -s -X PUT http://localhost:3000/api/oauth/configs/github \
+  -H 'content-type: application/json' \
+  -d '{"clientId":"...","clientSecret":"..."}'
+```
+
+Some providers declare additional OAuth client fields in `auth[].clientConfigFields`; send those as
+`extra`.
+
+Start authorization:
 
 ```bash
 curl -s -X POST http://localhost:3000/api/oauth/authorizations \
   -H 'content-type: application/json' \
-  -d '{"service":"example"}'
+  -d '{"service":"github"}'
 ```
 
-Open the returned `authorizationUrl` in a browser and finish the provider callback.
+Open the returned `authorizationUrl` in a browser. After the provider redirects to the local
+callback URL, the runtime stores the OAuth credential as the default connection.
+
+To store the OAuth credential as a named connection, include `connectionName` when starting
+authorization:
+
+```bash
+curl -s -X POST http://localhost:3000/api/oauth/authorizations \
+  -H 'content-type: application/json' \
+  -d '{"service":"github","connectionName":"work"}'
+```
 
 Protect the local SQLite database like any other file containing API keys or OAuth tokens.
+
+## Selecting A Connection For Execution
+
+The default connection is used when no alias is provided:
+
+```bash
+curl -s -X POST http://localhost:3000/v1/actions/github.get_authenticated_user \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+If a named connection already exists, select it with `x-oo-connector-alias`:
+
+```bash
+curl -s -X POST http://localhost:3000/v1/actions/github.get_authenticated_user \
+  -H 'x-oo-connector-alias: work' \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
+
+The `alias` query parameter is also accepted:
+
+```bash
+curl -s -X POST "http://localhost:3000/v1/actions/github.get_authenticated_user?alias=work" \
+  -H 'content-type: application/json' \
+  -d '{"input":{}}'
+```
 
 ## Backup, Import, And Reset
 
@@ -168,17 +255,23 @@ provider definitions should include those parameters when refresh tokens are exp
 The server binds to `127.0.0.1` by default. Set `HOST=0.0.0.0` only when the runtime must be
 reachable from outside the local machine or container.
 
-Set `OOMOL_CONNECT_API_TOKEN` to require bearer-token authentication for API and MCP requests:
+Set separate bearer tokens for local administration and runtime callers:
 
 ```bash
-OOMOL_CONNECT_API_TOKEN="replace-with-a-local-token" npm run dev
+OOMOL_CONNECT_ADMIN_TOKEN="replace-with-an-admin-token" \
+OOMOL_CONNECT_RUNTIME_TOKEN="replace-with-a-runtime-token" \
+npm run dev
 ```
 
-Then external clients should send:
+Admin clients calling `/api`, `/docs`, or the web console should send:
 
 ```text
-Authorization: Bearer replace-with-a-local-token
+Authorization: Bearer replace-with-an-admin-token
 ```
+
+Runtime clients calling `/v1` or `/mcp` should send `Authorization: Bearer
+replace-with-a-runtime-token`. The legacy `OOMOL_CONNECT_API_TOKEN` is still accepted as a fallback
+for both scopes when the split tokens are unset.
 
 The bundled web console receives a same-site local cookie from the runtime so it can keep working
 when API-token authentication is enabled.

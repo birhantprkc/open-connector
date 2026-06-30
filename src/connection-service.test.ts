@@ -1,4 +1,4 @@
-import type { IConnectionStore } from "./connection-service.ts";
+import type { IConnectionStore, StoredConnection } from "./connection-service.ts";
 import type { ActionExecutor, CredentialValidators, ProviderDefinition, ResolvedCredential } from "./core/types.ts";
 import type { OAuthClientConfig } from "./oauth/oauth-client-config-service.ts";
 import type { IProviderLoader } from "./providers/provider-loader.ts";
@@ -105,10 +105,13 @@ describe("ConnectionService", () => {
     await expect(service.getCredential("hackernews")).resolves.toEqual({ authType: "no_auth" });
     await expect(service.listConnections()).resolves.toEqual([
       {
+        id: "hackernews:default",
         service: "hackernews",
+        connectionName: "default",
         authType: "no_auth",
         configured: true,
         virtual: true,
+        default: true,
         profile: {
           accountId: "hackernews:public",
           displayName: "Hacker News Public",
@@ -309,7 +312,7 @@ describe("ConnectionService", () => {
       clientId: "client-id",
       clientSecret: "client-secret",
     });
-    await store.set("example", {
+    await store.set("example", "default", {
       authType: "oauth2",
       accessToken: "expired-token",
       tokenType: "Bearer",
@@ -340,7 +343,7 @@ describe("ConnectionService", () => {
         scope: "read",
       },
     });
-    await expect(store.get("example")).resolves.toMatchObject({
+    await expect(store.get("example", "default")).resolves.toMatchObject({
       authType: "oauth2",
       accessToken: "fresh-token",
     });
@@ -355,7 +358,7 @@ describe("ConnectionService", () => {
   it("asks users to reconnect when an expired OAuth credential has no refresh token", async () => {
     const store = new MemoryConnectionStore();
     const service = createService([oauthProvider], { store });
-    await store.set("example", {
+    await store.set("example", "default", {
       authType: "oauth2",
       accessToken: "expired-token",
       tokenType: "Bearer",
@@ -414,24 +417,32 @@ class FakeProviderLoader implements IProviderLoader {
 class MemoryConnectionStore implements IConnectionStore {
   private readonly store = new Map<string, ResolvedCredential>();
 
-  async get(service: string): Promise<ResolvedCredential | undefined> {
-    return this.store.get(service);
+  async get(service: string, connectionName: string): Promise<ResolvedCredential | undefined> {
+    return this.store.get(createConnectionKey(service, connectionName));
   }
 
-  async set(service: string, credential: ResolvedCredential): Promise<void> {
-    this.store.set(service, credential);
+  async set(service: string, connectionName: string, credential: ResolvedCredential): Promise<void> {
+    this.store.set(createConnectionKey(service, connectionName), credential);
   }
 
-  async delete(service: string): Promise<void> {
-    this.store.delete(service);
+  async delete(service: string, connectionName: string): Promise<void> {
+    this.store.delete(createConnectionKey(service, connectionName));
   }
 
-  async list(): Promise<Array<{ service: string; credential: ResolvedCredential }>> {
-    return [...this.store.entries()].map(([service, credential]) => ({
-      service,
-      credential,
-    }));
+  async list(): Promise<StoredConnection[]> {
+    return [...this.store.entries()].map(([key, credential]) => {
+      const [service, connectionName] = key.split(":");
+      return {
+        service: service!,
+        connectionName: connectionName!,
+        credential,
+      };
+    });
   }
+}
+
+function createConnectionKey(service: string, connectionName: string): string {
+  return `${service}:${connectionName}`;
 }
 
 class MemoryOAuthClientConfigStore {

@@ -9,13 +9,13 @@ if (!token) {
   process.exit(0);
 }
 
-await fetch("http://localhost:3000/api/connections/notion/api-key", {
+await fetch("http://localhost:3000/api/connections/notion", {
   method: "PUT",
   headers: localHeaders({ "content-type": "application/json" }),
-  body: JSON.stringify({ values: { apiKey: token } }),
+  body: JSON.stringify({ authType: "api_key", values: { apiKey: token } }),
 });
 
-const response = await fetch("http://localhost:3000/api/actions/notion.search", {
+const response = await fetch("http://localhost:3000/api/actions/notion.search/runs", {
   method: "POST",
   headers: localHeaders({ "content-type": "application/json" }),
   body: JSON.stringify({ input: { page_size: 5 } }),

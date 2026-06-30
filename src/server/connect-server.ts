@@ -18,6 +18,16 @@ import { ActionRunner } from "./action-runner.ts";
 import { createLocalAuthMiddleware, installLocalAuthCookie } from "./auth.ts";
 import { escapeHtml, internalError, jsonError, notFound, readJsonBody } from "./http-utils.ts";
 import { createOpenApiDocument } from "./openapi.ts";
+import {
+  mapConnectionErrorStatus,
+  serializeRuntimeAction,
+  serializeRuntimeActionService,
+  serializeRuntimeConnectedApp,
+  serializeRuntimeProvider,
+  writeRuntimeActionResult,
+  writeRuntimeFailure,
+  writeRuntimeSuccess,
+} from "./runtime-api.ts";
 import { registerStaticRoutes } from "./static-routes.ts";
 
 /**
@@ -52,6 +62,25 @@ export class ConnectServer {
 
     app.get("/health", (context) => context.json({ ok: true }));
     app.use("*", createLocalAuthMiddleware(auth));
+    app.get("/v1/health", (context) => writeRuntimeSuccess(context, { ok: true, runtime: "oomol-connect" }));
+    app.get("/v1/providers", (context) => this.listRuntimeProviders(context));
+    app.get("/v1/actions", (context) => this.listRuntimeActions(context));
+    app.get("/v1/actions/:actionId", (context) => this.getRuntimeAction(context, context.req.param("actionId")));
+    app.post("/v1/actions/:actionId", (context) => this.createRuntimeActionRun(context, context.req.param("actionId")));
+    app.get("/v1/apps", (context) => this.listRuntimeApps(context));
+    app.get("/v1/apps/authenticated", (context) => this.listAuthenticatedRuntimeApps(context));
+    app.get("/v1/apps/services/:service", (context) =>
+      this.listRuntimeAppsByService(context, context.req.param("service")),
+    );
+    app.post("/v1/proxy/:service", (context) =>
+      writeRuntimeFailure(context, {
+        status: 501,
+        errorCode: "proxy_not_supported",
+        message: `Proxy execution is not supported for ${context.req.param("service")}.`,
+        meta: { service: context.req.param("service") },
+      }),
+    );
+
     app.get("/openapi.json", (context) =>
       context.json(
         createOpenApiDocument(this.options.catalog.providers, {
@@ -76,21 +105,21 @@ export class ConnectServer {
       }),
     );
 
-    app.get("/api/apps", (context) => context.json(this.options.catalog.providers));
-    app.get("/api/apps/:service", (context) => this.getProvider(context, context.req.param("service")));
+    app.get("/api/providers", (context) => context.json(this.options.catalog.providers));
+    app.get("/api/providers/:service", (context) => this.getProvider(context, context.req.param("service")));
 
     app.get("/api/actions", (context) => context.json(this.options.catalog.actions));
-    app.get("/api/actions/:actionId", (context) => this.getAction(context, context.req.param("actionId")));
-    app.get("/api/:guideFile{.+\\.md}", (context) =>
-      this.getActionMarkdown(context, readMarkdownActionId(context.req.param("guideFile"))),
+    app.get("/api/actions/:actionId/agent.md", (context) =>
+      this.getActionMarkdown(context, context.req.param("actionId")),
     );
+    app.get("/api/actions/:actionId", (context) => this.getAction(context, context.req.param("actionId")));
+    app.post("/api/actions/:actionId/runs", (context) => this.createRun(context, context.req.param("actionId")));
 
     app.get("/api/connections", (context) => this.listConnections(context));
     app.put("/api/connections/:service", (context) => this.upsertConnection(context, context.req.param("service")));
     app.delete("/api/connections/:service", (context) => this.disconnect(context, context.req.param("service")));
 
     app.get("/api/runs", (context) => context.json(this.options.actions.listRuns()));
-    app.post("/api/run/:actionId", (context) => this.createRun(context, context.req.param("actionId")));
     app.get("/api/oauth/configs", (context) => this.listOAuthConfigs(context));
     app.put("/api/oauth/configs/:service", (context) => this.upsertOAuthConfig(context, context.req.param("service")));
     app.delete("/api/oauth/configs/:service", (context) =>
@@ -137,7 +166,7 @@ export class ConnectServer {
 
     return context.text(
       renderActionMarkdown(action, {
-        connection: await this.options.connections.getConnectionSummary(action.service),
+        connection: await this.options.connections.getConnectionSummary(action.service, readConnectionName(context)),
         providerPermissions: action.providerPermissions,
       }),
       200,
@@ -158,12 +187,132 @@ export class ConnectServer {
       actionId,
       input: body.input ?? {},
       caller: "http",
+      connectionName: readConnectionName(context, body),
     });
     if (!result) {
       return notFound(context);
     }
 
-    return context.json(result, result.ok ? 200 : 400);
+    return context.json(result.result, result.result.ok ? 200 : 400);
+  }
+
+  private listRuntimeProviders(context: Context): Response {
+    const services = context.req.queries("service") ?? [];
+    const query = optionalString(context.req.query("q"))?.toLowerCase();
+    const providers = this.options.catalog.providers.filter((provider) => {
+      if (services.length > 0 && !services.includes(provider.service)) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+
+      return [provider.service, provider.displayName, provider.categories.join(" "), provider.authTypes.join(" ")]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+
+    return writeRuntimeSuccess(context, providers.map(serializeRuntimeProvider));
+  }
+
+  private listRuntimeActions(context: Context): Response {
+    const service = optionalString(context.req.query("service"));
+    if (!service) {
+      const services = [...new Set(this.options.catalog.actions.map((action) => action.service))];
+      return writeRuntimeSuccess(context, services.map(serializeRuntimeActionService));
+    }
+
+    const actions = this.options.catalog.actions.filter((action) => action.service === service);
+    return writeRuntimeSuccess(context, actions.map(serializeRuntimeAction));
+  }
+
+  private getRuntimeAction(context: Context, actionId: string): Response {
+    const action = this.options.catalog.actionsById.get(actionId);
+    if (!action) {
+      return writeRuntimeFailure(context, {
+        status: 404,
+        errorCode: "invalid_input",
+        message: `unknown action: ${actionId}`,
+        meta: { actionId },
+      });
+    }
+
+    return writeRuntimeSuccess(context, serializeRuntimeAction(action));
+  }
+
+  private async createRuntimeActionRun(context: Context, actionId: string): Promise<Response> {
+    if (!this.options.catalog.actionsById.has(actionId)) {
+      return writeRuntimeFailure(context, {
+        status: 404,
+        errorCode: "invalid_input",
+        message: `unknown action: ${actionId}`,
+        meta: { actionId },
+      });
+    }
+
+    const body = await readJsonBody(context);
+    try {
+      const run = await this.options.actions.run({
+        actionId,
+        input: body.input ?? {},
+        caller: "http",
+        connectionName: readConnectionName(context, body),
+      });
+      if (!run) {
+        return writeRuntimeFailure(context, {
+          status: 404,
+          errorCode: "invalid_input",
+          message: `unknown action: ${actionId}`,
+          meta: { actionId },
+        });
+      }
+
+      return writeRuntimeActionResult(context, { actionId, executionId: run.executionId, result: run.result });
+    } catch (error) {
+      if (error instanceof ConnectionError) {
+        return writeRuntimeFailure(context, {
+          status: mapConnectionErrorStatus(error),
+          errorCode: error.code,
+          message: error.message,
+          meta: { actionId },
+        });
+      }
+
+      throw error;
+    }
+  }
+
+  private async listRuntimeApps(context: Context): Promise<Response> {
+    return writeRuntimeSuccess(
+      context,
+      (await this.options.connections.listConnections()).map(serializeRuntimeConnectedApp),
+    );
+  }
+
+  private async listRuntimeAppsByService(context: Context, service: string): Promise<Response> {
+    try {
+      return writeRuntimeSuccess(
+        context,
+        (await this.options.connections.listConnectionsByService(service)).map(serializeRuntimeConnectedApp),
+      );
+    } catch (error) {
+      if (error instanceof ConnectionError) {
+        return writeRuntimeFailure(context, {
+          status: mapConnectionErrorStatus(error),
+          errorCode: error.code,
+          message: error.message,
+          meta: { service },
+        });
+      }
+
+      throw error;
+    }
+  }
+
+  private async listAuthenticatedRuntimeApps(context: Context): Promise<Response> {
+    const services = context.req.queries("service") ?? [];
+    return writeRuntimeSuccess(context, await this.options.connections.listAuthenticatedServices(services));
   }
 
   private async handleMcp(context: Context): Promise<Response> {
@@ -199,16 +348,23 @@ export class ConnectServer {
     }
 
     const values = body.values ?? body;
+    const connectionName = readConnectionName(context, body);
     if (authType === "no_auth") {
-      return this.writeConnectionResult(context, this.options.connections.connectWithoutAuth(service));
+      return this.writeConnectionResult(
+        context,
+        this.options.connections.connectWithoutAuth(service, { connectionName }),
+      );
     }
     if (authType === "api_key") {
-      return this.writeConnectionResult(context, this.options.connections.connectWithApiKey(service, { values }));
+      return this.writeConnectionResult(
+        context,
+        this.options.connections.connectWithApiKey(service, { values, connectionName }),
+      );
     }
     if (authType === "custom_credential") {
       return this.writeConnectionResult(
         context,
-        this.options.connections.connectWithCustomCredential(service, { values }),
+        this.options.connections.connectWithCustomCredential(service, { values, connectionName }),
       );
     }
 
@@ -216,7 +372,11 @@ export class ConnectServer {
   }
 
   private async disconnect(context: Context, service: string): Promise<Response> {
-    return this.writeConnectionResult(context, this.options.connections.disconnect(service));
+    const body = context.req.header("content-type")?.includes("application/json") ? await readJsonBody(context) : {};
+    return this.writeConnectionResult(
+      context,
+      this.options.connections.disconnect(service, readConnectionName(context, body)),
+    );
   }
 
   private async createOAuthAuthorization(context: Context): Promise<Response> {
@@ -227,7 +387,10 @@ export class ConnectServer {
         "service",
         (message) => new OAuthFlowError("invalid_input", message),
       );
-      return await this.writeOAuthResult(context, this.options.oauthFlow.startAuthorization(service));
+      return await this.writeOAuthResult(
+        context,
+        this.options.oauthFlow.startAuthorization({ service, connectionName: readConnectionName(context, body) }),
+      );
     } catch (error) {
       if (error instanceof OAuthFlowError) {
         return jsonError(context, error.code === "unknown_service" ? 404 : 400, error.code, error.message);
@@ -300,6 +463,13 @@ export class ConnectServer {
   }
 }
 
-function readMarkdownActionId(filename: string): string {
-  return filename.endsWith(".md") ? filename.slice(0, -3) : filename;
+function readConnectionName(context: Context, body?: Record<string, unknown>): string | undefined {
+  return (
+    optionalString(body?.connectionName) ??
+    optionalString(body?.alias) ??
+    optionalString(context.req.header("x-oomol-connector-alias")) ??
+    optionalString(context.req.header("x-oo-connector-alias")) ??
+    optionalString(context.req.query("connectionName")) ??
+    optionalString(context.req.query("alias"))
+  );
 }

@@ -8,13 +8,13 @@ if (!token) {
   process.exit(0);
 }
 
-await fetch("http://localhost:3000/api/connections/github/api-key", {
+await fetch("http://localhost:3000/api/connections/github", {
   method: "PUT",
   headers: localHeaders({ "content-type": "application/json" }),
-  body: JSON.stringify({ values: { apiKey: token } }),
+  body: JSON.stringify({ authType: "api_key", values: { apiKey: token } }),
 });
 
-const response = await fetch("http://localhost:3000/api/actions/github.get_authenticated_user", {
+const response = await fetch("http://localhost:3000/api/actions/github.get_authenticated_user/runs", {
   method: "POST",
   headers: localHeaders({ "content-type": "application/json" }),
   body: JSON.stringify({ input: {} }),

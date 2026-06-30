@@ -21,7 +21,7 @@ describe("SqliteRuntimeDatabase", () => {
     const databasePath = await createDatabasePath();
     const first = new SqliteRuntimeDatabase(databasePath, { runLimit: 2 });
 
-    await first.connectionStore.set("github", {
+    await first.connectionStore.set("github", "default", {
       authType: "api_key",
       apiKey: "github-token",
       values: { apiKey: "github-token" },
@@ -51,7 +51,7 @@ describe("SqliteRuntimeDatabase", () => {
     first.close();
 
     const second = new SqliteRuntimeDatabase(databasePath, { runLimit: 2 });
-    await expect(second.connectionStore.get("github")).resolves.toMatchObject({
+    await expect(second.connectionStore.get("github", "default")).resolves.toMatchObject({
       authType: "api_key",
       apiKey: "github-token",
       metadata: { login: "octocat" },
@@ -98,7 +98,7 @@ describe("SqliteRuntimeDatabase", () => {
       secretCodec: new AesGcmSecretCodec("local-test-key"),
     });
 
-    await first.connectionStore.set("github", {
+    await first.connectionStore.set("github", "default", {
       authType: "api_key",
       apiKey: "github-token",
       values: { apiKey: "github-token" },
@@ -112,7 +112,7 @@ describe("SqliteRuntimeDatabase", () => {
     const second = new SqliteRuntimeDatabase(databasePath, {
       secretCodec: new AesGcmSecretCodec("local-test-key"),
     });
-    await expect(second.connectionStore.get("github")).resolves.toMatchObject({
+    await expect(second.connectionStore.get("github", "default")).resolves.toMatchObject({
       authType: "api_key",
       apiKey: "github-token",
     });
@@ -122,7 +122,7 @@ describe("SqliteRuntimeDatabase", () => {
   it("exports, restores, and resets runtime data snapshots", async () => {
     const sourcePath = await createDatabasePath();
     const source = new SqliteRuntimeDatabase(sourcePath);
-    await source.connectionStore.set("github", {
+    await source.connectionStore.set("github", "default", {
       authType: "api_key",
       apiKey: "github-token",
       values: { apiKey: "github-token" },
@@ -132,14 +132,14 @@ describe("SqliteRuntimeDatabase", () => {
     source.runLogStore.add(createRun("run-1", "2026-06-30T00:00:00.000Z"));
     const snapshot = await source.exportSnapshot();
     source.resetRuntimeData();
-    await expect(source.connectionStore.get("github")).resolves.toBeUndefined();
+    await expect(source.connectionStore.get("github", "default")).resolves.toBeUndefined();
     expect(source.runLogStore.list()).toEqual([]);
     source.close();
 
     const targetPath = await createDatabasePath();
     const target = new SqliteRuntimeDatabase(targetPath);
     target.restoreSnapshot(snapshot);
-    await expect(target.connectionStore.get("github")).resolves.toMatchObject({
+    await expect(target.connectionStore.get("github", "default")).resolves.toMatchObject({
       authType: "api_key",
       apiKey: "github-token",
     });
@@ -152,7 +152,7 @@ describe("SqliteRuntimeDatabase", () => {
     const oldDatabase = new SqliteRuntimeDatabase(databasePath, {
       secretCodec: new AesGcmSecretCodec("old-key"),
     });
-    await oldDatabase.connectionStore.set("github", {
+    await oldDatabase.connectionStore.set("github", "default", {
       authType: "api_key",
       apiKey: "github-token",
       values: { apiKey: "github-token" },
@@ -171,13 +171,13 @@ describe("SqliteRuntimeDatabase", () => {
     const withOldKey = new SqliteRuntimeDatabase(databasePath, {
       secretCodec: new AesGcmSecretCodec("old-key"),
     });
-    await expect(withOldKey.connectionStore.get("github")).rejects.toThrow();
+    await expect(withOldKey.connectionStore.get("github", "default")).rejects.toThrow();
     withOldKey.close();
 
     const withNewKey = new SqliteRuntimeDatabase(databasePath, {
       secretCodec: new AesGcmSecretCodec("new-key"),
     });
-    await expect(withNewKey.connectionStore.get("github")).resolves.toMatchObject({
+    await expect(withNewKey.connectionStore.get("github", "default")).resolves.toMatchObject({
       authType: "api_key",
       apiKey: "github-token",
     });

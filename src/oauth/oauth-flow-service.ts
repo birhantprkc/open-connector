@@ -11,11 +11,17 @@ export type OAuthAuthorizationStart = {
   state: string;
 };
 
+export interface OAuthAuthorizationStartInput {
+  service: string;
+  connectionName?: string;
+}
+
 /**
  * Short-lived OAuth state stored while the browser completes authorization.
  */
 export type OAuthAuthorizationState = {
   service: string;
+  connectionName?: string;
   state: string;
   createdAt: string;
 };
@@ -46,7 +52,8 @@ export class OAuthFlowService {
     this.states = input.states;
   }
 
-  async startAuthorization(service: string): Promise<OAuthAuthorizationStart> {
+  async startAuthorization(input: OAuthAuthorizationStartInput): Promise<OAuthAuthorizationStart> {
+    const { service, connectionName } = input;
     const auth = this.clientConfigs.getOAuthDefinition(service);
     const config = await this.clientConfigs.getConfig(service);
     if (!config) {
@@ -56,6 +63,7 @@ export class OAuthFlowService {
     const state = crypto.randomUUID();
     await this.states.set({
       service,
+      connectionName,
       state,
       createdAt: new Date().toISOString(),
     });
@@ -104,7 +112,7 @@ export class OAuthFlowService {
       createError: (message) => new OAuthFlowError("oauth_token_exchange_failed", message),
     });
 
-    await this.connections.setOAuthCredential(pending.service, tokenResponse);
+    await this.connections.setOAuthCredential(pending.service, tokenResponse, pending.connectionName);
     return {
       service: pending.service,
       connected: true,

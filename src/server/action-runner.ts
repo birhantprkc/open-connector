@@ -20,6 +20,12 @@ export interface RunActionInput {
   actionId: string;
   input: unknown;
   caller: RunLogCaller;
+  connectionName?: string;
+}
+
+export interface ActionRunResult {
+  executionId: string;
+  result: ExecutionResult;
 }
 
 /**
@@ -32,13 +38,13 @@ export class ActionRunner {
     this.options = options;
   }
 
-  async run(input: RunActionInput): Promise<ExecutionResult | undefined> {
+  async run(input: RunActionInput): Promise<ActionRunResult | undefined> {
     const action = this.options.catalog.actionsById.get(input.actionId);
     if (!action) {
       return undefined;
     }
 
-    const connection = await this.options.connections.getConnectionSummary(action.service);
+    const connection = await this.options.connections.getConnectionSummary(action.service, input.connectionName);
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
     const executor = action.execution.locallyExecutable
@@ -52,13 +58,14 @@ export class ActionRunner {
       action,
       executor,
       input.input,
-      this.options.connections,
+      this.options.connections.forConnection(input.connectionName),
       this.options.actionPolicy,
     );
     const completedAtMs = Date.now();
+    const executionId = crypto.randomUUID();
 
     this.options.runs.add({
-      id: crypto.randomUUID(),
+      id: executionId,
       actionId: input.actionId,
       caller: input.caller,
       startedAt,
@@ -71,7 +78,7 @@ export class ActionRunner {
       errorMessage: result.error?.message,
     });
 
-    return result;
+    return { executionId, result };
   }
 
   listRuns(): RunLog[] {

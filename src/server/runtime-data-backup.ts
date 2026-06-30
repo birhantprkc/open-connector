@@ -5,48 +5,70 @@ import type { RunLog } from "./runtime-store.ts";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 
 const backupFormat = "oomol-connect-runtime-backup";
-const backupVersion = 1;
+const backupVersion = 2;
 
-export type RuntimeDataSnapshot = {
-  version: 1;
+export interface RuntimeConnectionSnapshot {
+  service: string;
+  connectionName: string;
+  credential: ResolvedCredential;
+}
+
+export interface RuntimeDataSnapshot {
+  version: 2;
   exportedAt: string;
-  connections: Array<{ service: string; credential: ResolvedCredential }>;
+  connections: RuntimeConnectionSnapshot[];
   oauthClientConfigs: OAuthClientConfig[];
   runs: RunLog[];
-};
+}
 
-export type PlainRuntimeDataBackup = {
+export interface PlainRuntimeDataBackup {
   format: typeof backupFormat;
   version: typeof backupVersion;
   exportedAt: string;
-  encryption: {
-    mode: "none";
-  };
+  encryption: PlainRuntimeBackupEncryption;
   payload: RuntimeDataSnapshot;
-};
+}
 
-export type EncryptedRuntimeDataBackup = {
+export interface PlainRuntimeBackupEncryption {
+  mode: "none";
+}
+
+export interface EncryptedRuntimeDataBackup {
   format: typeof backupFormat;
   version: typeof backupVersion;
   exportedAt: string;
-  encryption: {
-    mode: "aes-256-gcm";
-    kdf: "scrypt";
-    salt: string;
-    iv: string;
-    tag: string;
-  };
+  encryption: EncryptedRuntimeBackupEncryption;
   payload: string;
-};
+}
+
+export interface EncryptedRuntimeBackupEncryption {
+  mode: "aes-256-gcm";
+  kdf: "scrypt";
+  salt: string;
+  iv: string;
+  tag: string;
+}
 
 export type RuntimeDataBackup = PlainRuntimeDataBackup | EncryptedRuntimeDataBackup;
 
-export function createRuntimeDataSnapshot(input: {
-  connections: Array<{ service: string; credential: ResolvedCredential }>;
+export interface CreateRuntimeDataSnapshotInput {
+  connections: RuntimeConnectionSnapshot[];
   oauthClientConfigs: OAuthClientConfig[];
   runs: RunLog[];
   exportedAt?: string;
-}): RuntimeDataSnapshot {
+}
+
+export interface EncodeRuntimeDataBackupInput {
+  snapshot: RuntimeDataSnapshot;
+  backupKey?: string;
+}
+
+export interface DecodeRuntimeDataBackupInput {
+  backup: RuntimeDataBackup;
+  backupKey?: string;
+}
+
+export function createRuntimeDataSnapshot(input: CreateRuntimeDataSnapshotInput): RuntimeDataSnapshot {
   return {
     version: backupVersion,
     exportedAt: input.exportedAt ?? new Date().toISOString(),
@@ -56,10 +78,7 @@ export function createRuntimeDataSnapshot(input: {
   };
 }
 
-export function encodeRuntimeDataBackup(input: {
-  snapshot: RuntimeDataSnapshot;
-  backupKey?: string;
-}): RuntimeDataBackup {
+export function encodeRuntimeDataBackup(input: EncodeRuntimeDataBackupInput): RuntimeDataBackup {
   if (!input.backupKey) {
     return {
       format: backupFormat,
@@ -92,7 +111,7 @@ export function encodeRuntimeDataBackup(input: {
   };
 }
 
-export function decodeRuntimeDataBackup(input: { backup: RuntimeDataBackup; backupKey?: string }): RuntimeDataSnapshot {
+export function decodeRuntimeDataBackup(input: DecodeRuntimeDataBackupInput): RuntimeDataSnapshot {
   assertRuntimeDataBackup(input.backup);
   if (isPlainRuntimeDataBackup(input.backup)) {
     return input.backup.payload;

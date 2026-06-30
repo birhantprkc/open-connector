@@ -10,10 +10,19 @@
 ## Code Style
 
 - Prefer VS Code-style coherent modules: split files by responsibility or abstraction boundary, not by loose categories.
+- Prefer `interface` for object-shaped contracts. Keep unions and mapped/utility compositions as `type`.
+- Prefer named options/input interfaces over inline object types when a function signature spans multiple lines or crosses module boundaries.
 - Avoid temporary ad hoc objects passed through many layers. Prefer explicit interfaces, classes, or top-level functions that match module boundaries.
 - Put generic low-level casting/reading helpers in `src/core/cast.ts`; avoid provider-specific wrappers for generic reads.
 - Avoid trivial pass-through helpers and conditional object spreads that only hide `undefined` JSON fields.
 - Do not manually wrap code to 80 columns. Let `oxfmt` decide formatting.
+
+## Runtime API
+
+- Keep `/v1` response shaping in `src/server/runtime-api.ts`; route handlers should dispatch and validate, not assemble compatibility objects field by field.
+- Public runtime fields should have a clear source and consumer. Do not expose local implementation concepts or placeholder fields just because they are easy to add.
+- Match existing runtime wire shapes deliberately: catalog index endpoints, action metadata, connection aliases, envelopes, and error codes should stay stable for SDK/CLI clients.
+- If an upstream-compatible field has no local source yet, prefer omitting it or returning a documented empty value from the serializer rather than scattering optional fields in routes.
 
 ## Providers
 
@@ -34,6 +43,7 @@
 - Examples should be concrete scripts users can run directly with `node examples/...`; do not add every example to `package.json`.
 - If an example depends on external credentials, print a clear skip message when environment variables are missing.
 - Do not put web UI code under `src/`. The future console should live as a separate Vite package under `web/`.
+- Public docs should describe normal OSS usage only; do not mention internal compatibility projects, commercial context, or unreleased SDK behavior.
 
 ## Verification
 

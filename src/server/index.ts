@@ -18,7 +18,9 @@ const hostname = process.env.HOST ?? "127.0.0.1";
 const publicOrigin = process.env.OOMOL_CONNECT_ORIGIN ?? `http://localhost:${port}`;
 const dataDir = process.env.OOMOL_CONNECT_DATA_DIR ?? join(process.cwd(), "data");
 const secretCodec = createSecretCodec(process.env.OOMOL_CONNECT_ENCRYPTION_KEY);
-const apiToken = process.env.OOMOL_CONNECT_API_TOKEN;
+const legacyApiToken = process.env.OOMOL_CONNECT_API_TOKEN;
+const adminToken = process.env.OOMOL_CONNECT_ADMIN_TOKEN ?? legacyApiToken;
+const runtimeToken = process.env.OOMOL_CONNECT_RUNTIME_TOKEN ?? legacyApiToken;
 const actionPolicy = new ActionPolicyService({
   allowedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_ALLOWED_ACTIONS),
   blockedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_BLOCKED_ACTIONS),
@@ -63,7 +65,8 @@ const app = new ConnectServer({
   actions,
   staticRoot,
   auth: {
-    token: apiToken,
+    adminToken,
+    runtimeToken,
   },
   actionPolicy,
 }).createApp();
@@ -86,8 +89,11 @@ serve(
   (info) => {
     console.log(`connect server listening on http://${hostname}:${info.port}`);
     console.log(`runtime data directory: ${dataDir}`);
-    if (!apiToken) {
-      console.warn("local API authentication is disabled; set OOMOL_CONNECT_API_TOKEN to require bearer tokens");
+    if (!adminToken) {
+      console.warn("local admin authentication is disabled; set OOMOL_CONNECT_ADMIN_TOKEN to require bearer tokens");
+    }
+    if (!runtimeToken) {
+      console.warn("runtime API authentication is disabled; set OOMOL_CONNECT_RUNTIME_TOKEN to require bearer tokens");
     }
     if (!secretCodec.encrypted) {
       console.warn(

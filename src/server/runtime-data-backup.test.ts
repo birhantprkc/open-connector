@@ -21,6 +21,7 @@ describe("runtime data backup format", () => {
       connections: [
         {
           service: "github",
+          connectionName: "default",
           credential: {
             authType: "api_key",
             apiKey: "github-token",
