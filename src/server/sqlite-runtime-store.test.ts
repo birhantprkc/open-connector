@@ -111,6 +111,69 @@ describe("SqliteRuntimeDatabase", () => {
     });
     second.close();
   });
+
+  it("exports, restores, and resets runtime data snapshots", async () => {
+    const sourcePath = await createDatabasePath();
+    const source = new SqliteRuntimeDatabase(sourcePath);
+    await source.connectionStore.set("github", {
+      authType: "api_key",
+      apiKey: "github-token",
+      values: { apiKey: "github-token" },
+      metadata: {},
+    });
+    source.runLogStore.add(createRun("run-1", "2026-06-30T00:00:00.000Z"));
+    const snapshot = await source.exportSnapshot();
+    source.resetRuntimeData();
+    await expect(source.connectionStore.get("github")).resolves.toBeUndefined();
+    expect(source.runLogStore.list()).toEqual([]);
+    source.close();
+
+    const targetPath = await createDatabasePath();
+    const target = new SqliteRuntimeDatabase(targetPath);
+    target.restoreSnapshot(snapshot);
+    await expect(target.connectionStore.get("github")).resolves.toMatchObject({
+      authType: "api_key",
+      apiKey: "github-token",
+    });
+    expect(target.runLogStore.list().map((run) => run.id)).toEqual(["run-1"]);
+    target.close();
+  });
+
+  it("supports re-encrypting runtime data with a new codec", async () => {
+    const databasePath = await createDatabasePath();
+    const oldDatabase = new SqliteRuntimeDatabase(databasePath, {
+      secretCodec: new AesGcmSecretCodec("old-key"),
+    });
+    await oldDatabase.connectionStore.set("github", {
+      authType: "api_key",
+      apiKey: "github-token",
+      values: { apiKey: "github-token" },
+      metadata: {},
+    });
+    const snapshot = await oldDatabase.exportSnapshot();
+    oldDatabase.close();
+
+    const newDatabase = new SqliteRuntimeDatabase(databasePath, {
+      secretCodec: new AesGcmSecretCodec("new-key"),
+    });
+    newDatabase.restoreSnapshot(snapshot);
+    newDatabase.close();
+
+    const withOldKey = new SqliteRuntimeDatabase(databasePath, {
+      secretCodec: new AesGcmSecretCodec("old-key"),
+    });
+    await expect(withOldKey.connectionStore.get("github")).rejects.toThrow();
+    withOldKey.close();
+
+    const withNewKey = new SqliteRuntimeDatabase(databasePath, {
+      secretCodec: new AesGcmSecretCodec("new-key"),
+    });
+    await expect(withNewKey.connectionStore.get("github")).resolves.toMatchObject({
+      authType: "api_key",
+      apiKey: "github-token",
+    });
+    withNewKey.close();
+  });
 });
 
 async function createDatabasePath(): Promise<string> {

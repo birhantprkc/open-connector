@@ -2,10 +2,12 @@ import type { IConnectionStore } from "../connection-service.ts";
 import type { ResolvedCredential } from "../core/types.ts";
 import type { IOAuthClientConfigStore, OAuthClientConfig } from "../oauth/oauth-client-config-service.ts";
 import type { IOAuthStateStore, OAuthAuthorizationState } from "../oauth/oauth-flow-service.ts";
+import type { RuntimeDataSnapshot } from "./runtime-data-backup.ts";
 import type { IRunLogStore, RunLog } from "./runtime-store.ts";
 import type { ISecretCodec } from "./secret-codec.ts";
 
 import { DatabaseSync } from "node:sqlite";
+import { createRuntimeDataSnapshot } from "./runtime-data-backup.ts";
 import { PlainTextSecretCodec } from "./secret-codec.ts";
 
 type RuntimeRow = Record<string, unknown>;
@@ -35,6 +37,38 @@ export class SqliteRuntimeDatabase {
 
   close(): void {
     this.database.close();
+  }
+
+  async exportSnapshot(): Promise<RuntimeDataSnapshot> {
+    return createRuntimeDataSnapshot({
+      connections: await this.connectionStore.list(),
+      oauthClientConfigs: await this.oauthClientConfigStore.list(),
+      runs: this.runLogStore.list(),
+    });
+  }
+
+  restoreSnapshot(snapshot: RuntimeDataSnapshot): void {
+    runInTransaction(this.database, () => {
+      this.resetRuntimeData();
+      for (const connection of snapshot.connections) {
+        setServiceJson(this.database, this.secretCodec, "connections", connection.service, connection.credential);
+      }
+      for (const config of snapshot.oauthClientConfigs) {
+        setServiceJson(this.database, this.secretCodec, "oauth_client_configs", config.service, config);
+      }
+      for (const run of snapshot.runs) {
+        insertRun(this.database, run);
+      }
+    });
+  }
+
+  resetRuntimeData(): void {
+    this.database.exec(`
+      delete from connections;
+      delete from oauth_client_configs;
+      delete from oauth_states;
+      delete from runs;
+    `);
   }
 
   private initialize(): void {
@@ -170,20 +204,7 @@ export class SqliteRunLogStore implements IRunLogStore {
   }
 
   add(run: RunLog): void {
-    this.database
-      .prepare(
-        `
-        insert into runs (id, action_id, started_at, completed_at, ok, value)
-        values (?, ?, ?, ?, ?, ?)
-        on conflict(id) do update set
-          action_id = excluded.action_id,
-          started_at = excluded.started_at,
-          completed_at = excluded.completed_at,
-          ok = excluded.ok,
-          value = excluded.value
-      `,
-      )
-      .run(run.id, run.actionId, run.startedAt, run.completedAt, run.ok ? 1 : 0, JSON.stringify(run));
+    insertRun(this.database, run);
 
     this.database
       .prepare(
@@ -204,6 +225,34 @@ export class SqliteRunLogStore implements IRunLogStore {
       .prepare("select value from runs order by started_at desc, id desc limit ?")
       .all(this.limit)
       .map((row) => parseJson<RunLog>(readString(row, "value")));
+  }
+}
+
+function insertRun(database: DatabaseSync, run: RunLog): void {
+  database
+    .prepare(
+      `
+      insert into runs (id, action_id, started_at, completed_at, ok, value)
+      values (?, ?, ?, ?, ?, ?)
+      on conflict(id) do update set
+        action_id = excluded.action_id,
+        started_at = excluded.started_at,
+        completed_at = excluded.completed_at,
+        ok = excluded.ok,
+        value = excluded.value
+    `,
+    )
+    .run(run.id, run.actionId, run.startedAt, run.completedAt, run.ok ? 1 : 0, JSON.stringify(run));
+}
+
+function runInTransaction(database: DatabaseSync, work: () => void): void {
+  database.exec("begin immediate");
+  try {
+    work();
+    database.exec("commit");
+  } catch (error) {
+    database.exec("rollback");
+    throw error;
   }
 }
 

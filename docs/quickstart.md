@@ -62,3 +62,10 @@ Constrain executable actions with comma-separated action ids or provider wildcar
 ```bash
 OOMOL_CONNECT_ALLOWED_ACTIONS="hackernews.*,github.get_authenticated_user" npm run dev
 ```
+
+Export an encrypted local backup:
+
+```bash
+OOMOL_CONNECT_BACKUP_KEY="replace-with-a-long-random-secret" \
+npm run runtime:data -- export --output ./backup/oomol-connect-runtime.json
+```

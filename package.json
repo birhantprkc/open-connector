@@ -15,6 +15,7 @@
     "test": "vitest run",
     "generate:registry": "node scripts/generate-provider-registry.ts",
     "generate:catalog": "npm run generate:registry && node scripts/generate-catalog.ts",
+    "runtime:data": "node scripts/runtime-data.ts",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "format": "oxfmt --check .",

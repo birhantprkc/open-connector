@@ -92,6 +92,52 @@ Open the returned `authorizationUrl` in a browser and finish the provider callba
 
 Protect the local SQLite database like any other file containing API keys or OAuth tokens.
 
+## Backup, Import, And Reset
+
+Export encrypted runtime data:
+
+```bash
+OOMOL_CONNECT_BACKUP_KEY="replace-with-a-long-random-secret" \
+npm run runtime:data -- export --output ./backup/oomol-connect-runtime.json
+```
+
+Import an encrypted backup into the configured data directory:
+
+```bash
+OOMOL_CONNECT_BACKUP_KEY="replace-with-a-long-random-secret" \
+npm run runtime:data -- import --input ./backup/oomol-connect-runtime.json
+```
+
+Reset local runtime data:
+
+```bash
+npm run runtime:data -- reset --yes
+```
+
+Backups include local connections, OAuth client configuration, and recent run logs. Pending OAuth
+callback states are intentionally not exported.
+
+Plaintext export is available only when explicitly requested:
+
+```bash
+npm run runtime:data -- export --output ./backup/plain-runtime.json --plain
+```
+
+Rotate the local SQLite credential encryption key:
+
+```bash
+OOMOL_CONNECT_ENCRYPTION_KEY="old-secret" \
+OOMOL_CONNECT_NEW_ENCRYPTION_KEY="new-secret" \
+npm run runtime:data -- rotate-key
+```
+
+Remove local SQLite credential encryption only when you intentionally want plaintext local storage:
+
+```bash
+OOMOL_CONNECT_ENCRYPTION_KEY="old-secret" \
+npm run runtime:data -- rotate-key --plain
+```
+
 ## OAuth Token Refresh
 
 OAuth access tokens are refreshed automatically when they are expired and the provider issued a
