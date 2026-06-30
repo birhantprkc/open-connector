@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -48,5 +49,10 @@ const lines = [
   "};",
 ];
 
-await writeFile(join(providersDir, "registry.generated.ts"), `${lines.join("\n")}\n`);
+const registryPath = join(providersDir, "registry.generated.ts");
+await writeFile(registryPath, `${lines.join("\n")}\n`);
+spawnSync("npx", ["--no-install", "oxfmt", registryPath], {
+  cwd: process.cwd(),
+  stdio: "inherit",
+});
 console.log(`Generated provider registry for ${services.length} providers.`);

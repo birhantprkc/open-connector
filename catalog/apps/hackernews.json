@@ -903,10 +903,6 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "query": {
-            "type": "string",
-            "description": "The search query text."
-          },
           "page": {
             "type": "integer",
             "minimum": 0,
@@ -927,6 +923,10 @@
               "type": "string"
             },
             "description": "Algolia filter tags."
+          },
+          "query": {
+            "type": "string",
+            "description": "The search query text."
           }
         },
         "additionalProperties": false,

@@ -8,6 +8,10 @@ export type ExecutorModule = {
 
 /** Generated lazy imports for provider executors. Do not hand-edit. */
 export const executorModules: Record<string, () => Promise<ExecutorModule>> = {
+  a_leads: (): Promise<ExecutorModule> => import("./a_leads/executors.ts"),
+  ably: (): Promise<ExecutorModule> => import("./ably/executors.ts"),
+  ably_control: (): Promise<ExecutorModule> => import("./ably_control/executors.ts"),
+  abstract: (): Promise<ExecutorModule> => import("./abstract/executors.ts"),
   github: (): Promise<ExecutorModule> => import("./github/executors.ts"),
   gmail: (): Promise<ExecutorModule> => import("./gmail/executors.ts"),
   hackernews: (): Promise<ExecutorModule> => import("./hackernews/executors.ts"),
@@ -16,6 +20,37 @@ export const executorModules: Record<string, () => Promise<ExecutorModule>> = {
 
 /** Generated local executable action ids by provider. Do not hand-edit. */
 export const executableActionIds: Record<string, string[]> = {
+  a_leads: ["a_leads.find_email", "a_leads.find_personal_email", "a_leads.find_phone", "a_leads.verify_email"],
+  ably: [
+    "ably.batch_presence",
+    "ably.batch_presence_history",
+    "ably.create_channel",
+    "ably.delete_channel_subscription",
+    "ably.get_channel_details",
+    "ably.get_channel_history",
+    "ably.get_presence_history",
+    "ably.get_service_time",
+    "ably.get_stats",
+    "ably.list_push_channel_subscriptions",
+    "ably.publish_message_to_channel",
+  ],
+  ably_control: [
+    "ably_control.create_app",
+    "ably_control.create_key",
+    "ably_control.create_queue",
+    "ably_control.delete_app",
+    "ably_control.delete_queue",
+    "ably_control.get_account_stats",
+    "ably_control.get_app_stats",
+    "ably_control.get_current_account",
+    "ably_control.list_apps",
+    "ably_control.list_keys",
+    "ably_control.list_queues",
+    "ably_control.revoke_key",
+    "ably_control.update_app",
+    "ably_control.update_key",
+  ],
+  abstract: ["abstract.validate_email"],
   github: [
     "github.add_issue_assignees",
     "github.add_issue_labels",
