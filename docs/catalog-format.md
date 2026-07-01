@@ -1,7 +1,9 @@
 # Catalog Format
 
 Provider definitions in `src/providers/<service>/definition.ts` are the source of truth.
-Catalog JSON in `catalog/apps` is generated and used by the server at startup.
+Catalog JSON in `catalog/apps` is generated local runtime data and used by the server at startup.
+Generated registry and catalog files are ignored by git. `npm install`, `npm run dev`, and
+`npm start` create them when they are missing or stale.
 
 Provider executors live in `src/providers/<service>/executors.ts` and are loaded only when an action is executed.
 

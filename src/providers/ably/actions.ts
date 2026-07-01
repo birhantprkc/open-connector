@@ -1,4 +1,4 @@
-import type { ActionDefinition, JsonSchema } from "../../core/types.ts";
+import type { ActionDefinition } from "../../core/types.ts";
 
 import { s } from "../../core/json-schema.ts";
 import { defineProviderAction } from "../../core/provider-definition.ts";
@@ -9,13 +9,11 @@ const channelIdField = s.string({
   description: "The Ably channel ID or channel name.",
   minLength: 1,
 });
-const channelArrayField = {
-  ...s.array(channelIdField, {
-    description: "The Ably channel names to query.",
-  }),
+const channelArrayField = s.array(channelIdField, {
+  description: "The Ably channel names to query.",
   minItems: 1,
   maxItems: 100,
-} satisfies JsonSchema;
+});
 
 const channelListField = s.anyOf(
   [

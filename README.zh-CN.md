@@ -291,10 +291,11 @@ docker compose up --build
 
 ```bash
 npm install
-npm run generate:catalog
 npm run build:web
 npm run dev
 ```
+
+`npm install` 和 `npm run dev` 会在生成文件缺失或过期时创建本地文件。
 
 从源码运行时，运行时状态默认保存在 `./data/connect.sqlite`。可以设置 `OOMOL_CONNECT_DATA_DIR` 使用其它目录。
 
@@ -394,7 +395,7 @@ src/
   providers/                Provider definition 和懒加载 executor
   server/                   本地 HTTP server
 web/                        Vite 本地控制台 package
-catalog/apps/               生成的公开 catalog JSON
+catalog/apps/               本地生成的 catalog JSON（gitignored）
 examples/                   可直接运行的本地示例
 scripts/                    Catalog 和 registry 生成脚本
 .codex/skills/add-provider/ 面向 agent 的 provider 贡献流程
@@ -417,7 +418,8 @@ npm test
 npm run build
 ```
 
-Provider definition 会生成 catalog JSON。Provider executor 只会在对应 action 被执行时加载。
+Provider definition 会生成 registry 和 catalog 文件。Provider executor 只会在对应 action 被执行时加载。
+生成文件是本地 runtime data，不提交到 git。
 
 ## 许可证范围
 

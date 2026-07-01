@@ -6,7 +6,6 @@ Thanks for contributing to OOMOL Connect.
 
 ```bash
 npm install
-npm run generate:catalog
 npm test
 ```
 
@@ -26,12 +25,14 @@ npm run build
 Follow [.codex/skills/add-provider/SKILL.md](.codex/skills/add-provider/SKILL.md).
 
 Provider definitions should be source-of-truth files under `src/providers/<service>/definition.ts`.
-Generated files such as `catalog/apps/*.json` and `src/providers/registry.generated.ts` should be
-updated through:
+Generated files are updated through:
 
 ```bash
 npm run generate:catalog
 ```
+
+Generated `src/providers/registry.generated.ts` and `catalog/apps/*.json` files are local runtime
+data and are ignored by git.
 
 ## Third-Party Rights
 

@@ -96,35 +96,18 @@ For runnable providers:
 ```ts
 import type { ProviderExecutors } from "../../core/types.ts";
 
-import { defineProviderExecutors, requireApiKeyCredential } from "../provider-runtime.ts";
-
-type ExampleActionContext = {
-  apiKey: string;
-};
+import { defineApiKeyProviderExecutors } from "../provider-runtime.ts";
 
 const exampleActionHandlers: Record<
   string,
-  (input: Record<string, unknown>, context: ExampleActionContext) => Promise<unknown>
+  (input: Record<string, unknown>, context: { apiKey: string; fetcher: typeof fetch }) => Promise<unknown>
 > = {
   async exampleAction(_input, context): Promise<unknown> {
-    if (context.credential?.authType !== "api_key") {
-      throw new Error("Configure credentials before running this action.");
-    }
-
     return {};
   },
 };
 
-export const executors: ProviderExecutors = defineProviderExecutors<ExampleActionContext>({
-  service: "<service>",
-  handlers: exampleActionHandlers,
-  async createContext(context): Promise<ExampleActionContext> {
-    const credential = await requireApiKeyCredential(context, "<service>");
-    return {
-      apiKey: credential.apiKey,
-    };
-  },
-});
+export const executors: ProviderExecutors = defineApiKeyProviderExecutors("<service>", exampleActionHandlers);
 ```
 
 ## Workflow
@@ -159,6 +142,7 @@ curl -s 'http://localhost:3000/api/actions/<service>.<actionId>/execute' \
 - Do not import executors from `definition.ts`.
 - Do not use barrel files such as `index.ts`; import from the concrete module that owns the API.
 - Keep provider SDK clients or HTTP helpers inside the provider folder unless shared by multiple providers.
+- Put generic query/body assembly in `src/core/request.ts`, generic value reads/casts in `src/core/cast.ts`, and common credential executor wiring in `src/providers/provider-runtime.ts`.
 - For unavailable local execution, keep the action in `definition.ts` and omit the executor entry.
 
 ## Catalog Rules
@@ -167,7 +151,9 @@ curl -s 'http://localhost:3000/api/actions/<service>.<actionId>/execute' \
 - Do not hand-edit `src/providers/registry.generated.ts`.
 - `definition.ts` must not depend on network calls or credentials.
 - Keep schemas JSON-serializable.
-- Prefer `jsonSchema` helpers from `src/core/json-schema.ts` for common schema shapes.
+- Prefer `jsonSchema` helpers from `src/core/json-schema.ts` for common schema shapes, including `s.actionInput`, `s.actionOutput`, `s.nonEmptyString`, and `s.stringArray` when they fit.
+- Avoid provider-local schema helpers that only wrap shared behavior. Keep provider-local helpers for provider concepts, not generic object/input/string boilerplate.
+- Use `as const` only when it is needed to derive a literal union or tuple type that materially improves correctness. Runtime validation and JSON Schema should carry action input correctness.
 
 ## Maintenance Checks
 

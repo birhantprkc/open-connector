@@ -14,6 +14,11 @@ import { CastError } from "../core/cast.ts";
 export type ProviderFetch = typeof fetch;
 
 /**
+ * Default User-Agent sent by local provider executors.
+ */
+export const providerUserAgent = "oomol-connect/0.1";
+
+/**
  * Provider-native handler shape. The provider owns `TContext`; the shared
  * runtime only adapts it to the action executor contract.
  */
@@ -39,6 +44,26 @@ export interface BearerCredential {
   accessToken: string;
 }
 
+export interface ApiKeyProviderContext {
+  apiKey: string;
+  fetcher: ProviderFetch;
+  signal?: AbortSignal;
+}
+
+export interface OAuthProviderContext {
+  accessToken: string;
+  tokenType?: string;
+  fetcher: ProviderFetch;
+  signal?: AbortSignal;
+}
+
+export interface BearerProviderContext {
+  accessToken: string;
+  tokenType?: string;
+  fetcher: ProviderFetch;
+  signal?: AbortSignal;
+}
+
 /**
  * Error raised for provider API responses and mapped to stable execution errors.
  */
@@ -58,7 +83,7 @@ export class ProviderRequestError extends Error {
  */
 export function setSearchParams(url: URL, query: Record<string, string | undefined>): void {
   for (const [key, value] of Object.entries(query)) {
-    if (value) {
+    if (value !== undefined) {
       url.searchParams.set(key, value);
     }
   }
@@ -146,6 +171,71 @@ export function defineProviderExecutors<TContext>(input: ProviderExecutorDefinit
   }
 
   return executors;
+}
+
+/**
+ * Define executors for providers that use the built-in API key credential.
+ */
+export function defineApiKeyProviderExecutors(
+  service: string,
+  handlers: Record<string, ProviderRuntimeHandler<ApiKeyProviderContext>>,
+): ProviderExecutors {
+  return defineProviderExecutors<ApiKeyProviderContext>({
+    service,
+    handlers,
+    async createContext(context, fetcher): Promise<ApiKeyProviderContext> {
+      const credential = await requireApiKeyCredential(context, service);
+      return {
+        apiKey: credential.apiKey,
+        fetcher,
+        signal: context.signal,
+      };
+    },
+  });
+}
+
+/**
+ * Define executors for providers that require OAuth access tokens.
+ */
+export function defineOAuthProviderExecutors(
+  service: string,
+  handlers: Record<string, ProviderRuntimeHandler<OAuthProviderContext>>,
+): ProviderExecutors {
+  return defineProviderExecutors<OAuthProviderContext>({
+    service,
+    handlers,
+    async createContext(context, fetcher): Promise<OAuthProviderContext> {
+      const credential = await requireOAuthCredential(context, service);
+      return {
+        accessToken: credential.accessToken,
+        tokenType: credential.tokenType,
+        fetcher,
+        signal: context.signal,
+      };
+    },
+  });
+}
+
+/**
+ * Define executors for providers that can use either OAuth or API key bearer credentials.
+ */
+export function defineBearerProviderExecutors(
+  service: string,
+  handlers: Record<string, ProviderRuntimeHandler<BearerProviderContext>>,
+): ProviderExecutors {
+  return defineProviderExecutors<BearerProviderContext>({
+    service,
+    handlers,
+    async createContext(context, fetcher): Promise<BearerProviderContext> {
+      const credential = await requireBearerCredential(context, service);
+      return {
+        accessToken: credential.accessToken,
+        tokenType: credential.tokenType,
+        fetcher,
+        signal: context.signal,
+      };
+    },
+  });
 }
 
 /**

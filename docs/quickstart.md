@@ -1,13 +1,14 @@
 # Quickstart
 
-Install dependencies, generate the local catalog, run the build, and start the runtime:
+Install dependencies, run the build, and start the runtime:
 
 ```bash
 npm install
-npm run generate:catalog
 npm run build
 npm run dev
 ```
+
+`npm install` and `npm run dev` create local generated files when they are missing or stale.
 
 Open the API reference at `http://localhost:3000/docs`.
 

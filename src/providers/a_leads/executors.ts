@@ -1,12 +1,16 @@
 import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
 
 import { compactObject, optionalRecord, optionalString } from "../../core/cast.ts";
-import { defineProviderExecutors, ProviderRequestError, requireApiKeyCredential } from "../provider-runtime.ts";
+import {
+  defineProviderExecutors,
+  providerUserAgent,
+  ProviderRequestError,
+  requireApiKeyCredential,
+} from "../provider-runtime.ts";
 
 const service = "a_leads";
 const aLeadsApiBaseUrl = "https://api.a-leads.co/gateway/v1";
 const aLeadsSearchBaseUrl = `${aLeadsApiBaseUrl}/search`;
-const userAgent = "oomol-connect/0.1";
 
 interface ALeadsActionContext {
   apiKey: string;
@@ -118,7 +122,7 @@ async function aLeadsRequest(
     headers: {
       accept: "application/json",
       "content-type": "application/json",
-      "user-agent": userAgent,
+      "user-agent": providerUserAgent,
       "x-api-key": context.apiKey,
     },
     body: JSON.stringify(body),

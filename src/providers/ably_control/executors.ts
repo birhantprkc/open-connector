@@ -9,12 +9,16 @@ import {
   optionalString,
   requiredString,
 } from "../../core/cast.ts";
-import { defineProviderExecutors, ProviderRequestError, requireApiKeyCredential } from "../provider-runtime.ts";
+import {
+  defineProviderExecutors,
+  providerUserAgent,
+  ProviderRequestError,
+  requireApiKeyCredential,
+} from "../provider-runtime.ts";
 
 const service = "ably_control";
 const ablyControlApiBaseUrl = "https://control.ably.net/v1";
 const ablyControlAccessTokenUrl = "https://ably.com/users/access_tokens";
-const userAgent = "oomol-connect/0.1";
 
 interface AblyControlActionContext {
   apiKey: string;
@@ -312,7 +316,7 @@ function buildAblyControlHeaders(apiKey: string, hasBody: boolean): Headers {
   const headers = new Headers({
     accept: "application/json",
     authorization: `Bearer ${apiKey}`,
-    "user-agent": userAgent,
+    "user-agent": providerUserAgent,
   });
   if (hasBody) {
     headers.set("content-type", "application/json");

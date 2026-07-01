@@ -1,4 +1,4 @@
-import type { ActionDefinition, JsonSchema } from "../../core/types.ts";
+import type { ActionDefinition } from "../../core/types.ts";
 
 import { s } from "../../core/json-schema.ts";
 import { defineProviderAction } from "../../core/provider-definition.ts";
@@ -184,61 +184,42 @@ const statsInputSchema = s.object(
   { description: "Query parameters for retrieving Ably statistics." },
 );
 
-function requiredObject(properties: Record<string, JsonSchema>, description: string): JsonSchema {
-  return s.object(properties, {
-    required: Object.keys(properties),
-    description,
-  });
-}
-
 export const ablyControlActions: ActionDefinition[] = [
   defineProviderAction(service, {
     name: "get_current_account",
     description: "Retrieve the Ably Control API token, user, and account associated with the access token.",
     inputSchema: s.object({}, { description: "No input is required to retrieve the current Ably account." }),
-    outputSchema: requiredObject(
-      {
-        me: meSchema,
-      },
-      "The current Ably Control API account response.",
-    ),
+    outputSchema: s.requiredObject("The current Ably Control API account response.", {
+      me: meSchema,
+    }),
   }),
   defineProviderAction(service, {
     name: "get_account_stats",
     description: "Retrieve account-level Ably statistics for the connected account or account ID.",
     inputSchema: statsInputSchema,
-    outputSchema: requiredObject(
-      {
-        stats: s.array(statsRecordSchema, {
-          description: "Statistics records returned by Ably.",
-        }),
-      },
-      "The normalized Ably account statistics response.",
-    ),
+    outputSchema: s.requiredObject("The normalized Ably account statistics response.", {
+      stats: s.array(statsRecordSchema, {
+        description: "Statistics records returned by Ably.",
+      }),
+    }),
   }),
   defineProviderAction(service, {
     name: "get_app_stats",
     description: "Retrieve app-level Ably statistics for an Ably app.",
     inputSchema: statsInputSchema,
-    outputSchema: requiredObject(
-      {
-        stats: s.array(statsRecordSchema, {
-          description: "Statistics records returned by Ably.",
-        }),
-      },
-      "The normalized Ably app statistics response.",
-    ),
+    outputSchema: s.requiredObject("The normalized Ably app statistics response.", {
+      stats: s.array(statsRecordSchema, {
+        description: "Statistics records returned by Ably.",
+      }),
+    }),
   }),
   defineProviderAction(service, {
     name: "list_apps",
     description: "List Ably apps in the connected account or supplied account ID.",
     inputSchema: s.object({ accountId: accountIdField }, { description: "Input for listing Ably apps." }),
-    outputSchema: requiredObject(
-      {
-        apps: s.array(appSchema, { description: "Apps returned by Ably." }),
-      },
-      "The normalized Ably app list response.",
-    ),
+    outputSchema: s.requiredObject("The normalized Ably app list response.", {
+      apps: s.array(appSchema, { description: "Apps returned by Ably." }),
+    }),
   }),
   defineProviderAction(service, {
     name: "create_app",
@@ -250,7 +231,7 @@ export const ablyControlActions: ActionDefinition[] = [
         description: "App fields forwarded to Ably's create app endpoint.",
       },
     ),
-    outputSchema: requiredObject({ app: appSchema }, "The normalized Ably app creation response."),
+    outputSchema: s.requiredObject("The normalized Ably app creation response.", { app: appSchema }),
   }),
   defineProviderAction(service, {
     name: "update_app",
@@ -262,38 +243,33 @@ export const ablyControlActions: ActionDefinition[] = [
         description: "App fields forwarded to Ably's update app endpoint.",
       },
     ),
-    outputSchema: requiredObject({ app: appSchema }, "The normalized Ably app update response."),
+    outputSchema: s.requiredObject("The normalized Ably app update response.", { app: appSchema }),
   }),
   defineProviderAction(service, {
     name: "delete_app",
     description: "Delete an Ably app by app ID.",
-    inputSchema: requiredObject({ appId: appIdField }, "Input for deleting an Ably app."),
-    outputSchema: requiredObject(
-      { success: s.boolean({ description: "Whether Ably accepted the delete request." }) },
-      "The normalized Ably app delete response.",
-    ),
+    inputSchema: s.requiredObject("Input for deleting an Ably app.", { appId: appIdField }),
+    outputSchema: s.requiredObject("The normalized Ably app delete response.", {
+      success: s.boolean({ description: "Whether Ably accepted the delete request." }),
+    }),
   }),
   defineProviderAction(service, {
     name: "list_keys",
     description: "List API keys for an Ably app.",
-    inputSchema: requiredObject({ appId: appIdField }, "Input for listing Ably API keys."),
-    outputSchema: requiredObject(
-      { keys: s.array(keySchema, { description: "API keys returned by Ably." }) },
-      "The normalized Ably key list response.",
-    ),
+    inputSchema: s.requiredObject("Input for listing Ably API keys.", { appId: appIdField }),
+    outputSchema: s.requiredObject("The normalized Ably key list response.", {
+      keys: s.array(keySchema, { description: "API keys returned by Ably." }),
+    }),
   }),
   defineProviderAction(service, {
     name: "create_key",
     description: "Create an API key for an Ably app.",
-    inputSchema: requiredObject(
-      {
-        appId: appIdField,
-        name: s.string({ description: "The key name.", minLength: 1 }),
-        capability: capabilityField,
-      },
-      "Key fields forwarded to Ably's create key endpoint.",
-    ),
-    outputSchema: requiredObject({ key: keySchema }, "The normalized Ably key creation response."),
+    inputSchema: s.requiredObject("Key fields forwarded to Ably's create key endpoint.", {
+      appId: appIdField,
+      name: s.string({ description: "The key name.", minLength: 1 }),
+      capability: capabilityField,
+    }),
+    outputSchema: s.requiredObject("The normalized Ably key creation response.", { key: keySchema }),
   }),
   defineProviderAction(service, {
     name: "update_key",
@@ -310,31 +286,26 @@ export const ablyControlActions: ActionDefinition[] = [
         description: "Key fields forwarded to Ably's update key endpoint.",
       },
     ),
-    outputSchema: requiredObject({ key: keySchema }, "The normalized Ably key update response."),
+    outputSchema: s.requiredObject("The normalized Ably key update response.", { key: keySchema }),
   }),
   defineProviderAction(service, {
     name: "revoke_key",
     description: "Revoke an Ably API key by key ID.",
-    inputSchema: requiredObject(
-      {
-        appId: appIdField,
-        keyId: keyIdField,
-      },
-      "Input for revoking an Ably API key.",
-    ),
-    outputSchema: requiredObject(
-      { success: s.boolean({ description: "Whether Ably accepted the revoke request." }) },
-      "The normalized Ably key revocation response.",
-    ),
+    inputSchema: s.requiredObject("Input for revoking an Ably API key.", {
+      appId: appIdField,
+      keyId: keyIdField,
+    }),
+    outputSchema: s.requiredObject("The normalized Ably key revocation response.", {
+      success: s.boolean({ description: "Whether Ably accepted the revoke request." }),
+    }),
   }),
   defineProviderAction(service, {
     name: "list_queues",
     description: "List queues for an Ably app.",
-    inputSchema: requiredObject({ appId: appIdField }, "Input for listing Ably queues."),
-    outputSchema: requiredObject(
-      { queues: s.array(queueSchema, { description: "Queues returned by Ably." }) },
-      "The normalized Ably queue list response.",
-    ),
+    inputSchema: s.requiredObject("Input for listing Ably queues.", { appId: appIdField }),
+    outputSchema: s.requiredObject("The normalized Ably queue list response.", {
+      queues: s.array(queueSchema, { description: "Queues returned by Ably." }),
+    }),
   }),
   defineProviderAction(service, {
     name: "create_queue",
@@ -355,22 +326,18 @@ export const ablyControlActions: ActionDefinition[] = [
         description: "Queue fields forwarded to Ably's create queue endpoint.",
       },
     ),
-    outputSchema: requiredObject({ queue: queueSchema }, "The normalized Ably queue creation response."),
+    outputSchema: s.requiredObject("The normalized Ably queue creation response.", { queue: queueSchema }),
   }),
   defineProviderAction(service, {
     name: "delete_queue",
     description: "Delete an Ably queue by queue ID.",
-    inputSchema: requiredObject(
-      {
-        appId: appIdField,
-        queueId: queueIdField,
-      },
-      "Input for deleting an Ably queue.",
-    ),
-    outputSchema: requiredObject(
-      { success: s.boolean({ description: "Whether Ably accepted the delete request." }) },
-      "The normalized Ably queue delete response.",
-    ),
+    inputSchema: s.requiredObject("Input for deleting an Ably queue.", {
+      appId: appIdField,
+      queueId: queueIdField,
+    }),
+    outputSchema: s.requiredObject("The normalized Ably queue delete response.", {
+      success: s.boolean({ description: "Whether Ably accepted the delete request." }),
+    }),
   }),
 ];
 

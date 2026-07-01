@@ -9,6 +9,31 @@ export type JsonSchemaOptions = {
   format?: string;
 };
 
+type ObjectOptions = JsonSchemaOptions & {
+  required?: string[];
+  optional?: readonly string[];
+  additionalProperties?: boolean | JsonSchema;
+  defs?: Record<string, JsonSchema>;
+};
+
+type ArrayOptions = JsonSchemaOptions & {
+  minItems?: number;
+  maxItems?: number;
+  itemDescription?: string;
+};
+
+type StringOptions = JsonSchemaOptions & {
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+};
+
+type NumberOptions = JsonSchemaOptions & {
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
+};
+
 /**
  * JSON Schema helpers for provider action contracts.
  *
@@ -17,32 +42,81 @@ export type JsonSchemaOptions = {
  */
 export const jsonSchema = {
   object(
-    properties: Record<string, JsonSchema>,
-    options: JsonSchemaOptions & {
-      required?: string[];
-      additionalProperties?: boolean | JsonSchema;
-      defs?: Record<string, JsonSchema>;
-    } = {},
+    propertiesOrDescription: Record<string, JsonSchema> | string,
+    optionsOrProperties: ObjectOptions | Record<string, JsonSchema> = {},
+    maybeOptions: ObjectOptions = {},
   ): JsonSchema {
+    const properties =
+      typeof propertiesOrDescription === "string"
+        ? (optionsOrProperties as Record<string, JsonSchema>)
+        : propertiesOrDescription;
+    const options =
+      typeof propertiesOrDescription === "string"
+        ? { ...maybeOptions, description: propertiesOrDescription }
+        : (optionsOrProperties as ObjectOptions);
+    const required =
+      options.required ??
+      (options.optional ? Object.keys(properties).filter((key) => !options.optional?.includes(key)) : undefined);
     const schema: JsonSchema = {
       type: "object",
       properties,
       additionalProperties: options.additionalProperties ?? false,
     };
-    if (options.required && options.required.length > 0) schema.required = options.required;
+    if (required && required.length > 0) schema.required = required;
     if (options.defs) schema.$defs = options.defs;
     return withOptions(schema, options);
   },
 
-  array(items: JsonSchema, options: JsonSchemaOptions = {}): JsonSchema {
-    return withOptions({ type: "array", items }, options);
+  requiredObject(description: string, properties: Record<string, JsonSchema>): JsonSchema {
+    return this.object(properties, { required: Object.keys(properties), description });
   },
 
-  string(options: JsonSchemaOptions & { minLength?: number; maxLength?: number } = {}): JsonSchema {
+  looseRequiredObject(
+    description: string,
+    properties: Record<string, JsonSchema>,
+    options: { optional?: readonly string[] } = {},
+  ): JsonSchema {
+    return this.object(description, properties, {
+      optional: options.optional,
+      additionalProperties: true,
+    });
+  },
+
+  array(
+    itemsOrDescription: JsonSchema | string,
+    optionsOrItems: ArrayOptions | JsonSchema = {},
+    maybeOptions: ArrayOptions = {},
+  ): JsonSchema {
+    const items = typeof itemsOrDescription === "string" ? (optionsOrItems as JsonSchema) : itemsOrDescription;
+    const options =
+      typeof itemsOrDescription === "string"
+        ? { ...maybeOptions, description: itemsOrDescription }
+        : (optionsOrItems as ArrayOptions);
+    const schema: JsonSchema = { type: "array", items };
+    withOptions(schema, options);
+    if (options.minItems != null) schema.minItems = options.minItems;
+    if (options.maxItems != null) schema.maxItems = options.maxItems;
+    return schema;
+  },
+
+  string(
+    optionsOrDescription: StringOptions | string = {},
+    maybeOptions: Omit<StringOptions, "description"> = {},
+  ): JsonSchema {
+    const options =
+      typeof optionsOrDescription === "string"
+        ? { ...maybeOptions, description: optionsOrDescription }
+        : optionsOrDescription;
     const schema: JsonSchema = { type: "string" };
     if (options.minLength != null) schema.minLength = options.minLength;
     if (options.maxLength != null) schema.maxLength = options.maxLength;
-    return withOptions(schema, options);
+    withOptions(schema, options);
+    if (options.pattern != null) schema.pattern = options.pattern;
+    return schema;
+  },
+
+  nonEmptyString(description: string, options: Omit<JsonSchemaOptions, "description"> = {}): JsonSchema {
+    return this.string({ ...options, minLength: 1, description });
   },
 
   unknown(description: string): JsonSchema {
@@ -57,25 +131,43 @@ export const jsonSchema = {
     return this.string({ format: "email", description });
   },
 
+  nullableString(description: string, options: Omit<JsonSchemaOptions, "description"> = {}): JsonSchema {
+    return this.nullable(this.string({ ...options, description }));
+  },
+
   dateTime(description: string): JsonSchema {
     return this.string({ format: "date-time", description });
+  },
+
+  date(description: string): JsonSchema {
+    return this.string({ format: "date", description });
+  },
+
+  uuid(description: string): JsonSchema {
+    return this.string({ format: "uuid", description });
   },
 
   stringPattern(pattern: string, options: JsonSchemaOptions = {}): JsonSchema {
     return withOptions({ type: "string", pattern }, options);
   },
 
-  stringEnum(values: string[], options: JsonSchemaOptions = {}): JsonSchema {
+  stringEnum(valuesOrDescription: string[] | string, optionsOrValues: JsonSchemaOptions | string[] = {}): JsonSchema {
+    const values = typeof valuesOrDescription === "string" ? (optionsOrValues as string[]) : valuesOrDescription;
+    const options =
+      typeof valuesOrDescription === "string"
+        ? { description: valuesOrDescription }
+        : (optionsOrValues as JsonSchemaOptions);
     return withOptions({ type: "string", enum: values }, options);
   },
 
   integer(
-    options: JsonSchemaOptions & {
-      minimum?: number;
-      maximum?: number;
-      exclusiveMinimum?: number;
-    } = {},
+    optionsOrDescription: NumberOptions | string = {},
+    maybeOptions: Omit<NumberOptions, "description"> = {},
   ): JsonSchema {
+    const options =
+      typeof optionsOrDescription === "string"
+        ? { ...maybeOptions, description: optionsOrDescription }
+        : optionsOrDescription;
     const schema: JsonSchema = { type: "integer" };
     if (options.minimum != null) schema.minimum = options.minimum;
     if (options.maximum != null) schema.maximum = options.maximum;
@@ -84,12 +176,13 @@ export const jsonSchema = {
   },
 
   number(
-    options: JsonSchemaOptions & {
-      minimum?: number;
-      maximum?: number;
-      exclusiveMinimum?: number;
-    } = {},
+    optionsOrDescription: NumberOptions | string = {},
+    maybeOptions: Omit<NumberOptions, "description"> = {},
   ): JsonSchema {
+    const options =
+      typeof optionsOrDescription === "string"
+        ? { ...maybeOptions, description: optionsOrDescription }
+        : optionsOrDescription;
     const schema: JsonSchema = { type: "number" };
     if (options.minimum != null) schema.minimum = options.minimum;
     if (options.maximum != null) schema.maximum = options.maximum;
@@ -97,7 +190,9 @@ export const jsonSchema = {
     return withOptions(schema, options);
   },
 
-  boolean(options: JsonSchemaOptions = {}): JsonSchema {
+  boolean(optionsOrDescription: JsonSchemaOptions | string = {}): JsonSchema {
+    const options =
+      typeof optionsOrDescription === "string" ? { description: optionsOrDescription } : optionsOrDescription;
     return withOptions({ type: "boolean" }, options);
   },
 
@@ -105,7 +200,16 @@ export const jsonSchema = {
     return withOptions({ const: value, type: typeof value }, options);
   },
 
-  anyOf(schemas: JsonSchema[], options: JsonSchemaOptions = {}): JsonSchema {
+  anyOf(
+    schemasOrDescription: JsonSchema[] | string,
+    optionsOrSchemas: JsonSchemaOptions | JsonSchema[] = {},
+  ): JsonSchema {
+    const schemas =
+      typeof schemasOrDescription === "string" ? (optionsOrSchemas as JsonSchema[]) : schemasOrDescription;
+    const options =
+      typeof schemasOrDescription === "string"
+        ? { description: schemasOrDescription }
+        : (optionsOrSchemas as JsonSchemaOptions);
     return withOptions({ anyOf: schemas }, options);
   },
 
@@ -140,7 +244,40 @@ export const jsonSchema = {
       description,
     };
   },
-} as const;
+
+  stringArray(
+    description: string,
+    options: Omit<JsonSchemaOptions, "description"> & {
+      minItems?: number;
+      maxItems?: number;
+      itemDescription?: string;
+    } = {},
+  ): JsonSchema {
+    return this.array(this.string({ minLength: 1, description: options.itemDescription }), {
+      description,
+      minItems: options.minItems,
+      maxItems: options.maxItems,
+      default: options.default,
+      format: options.format,
+    });
+  },
+
+  actionInput(
+    properties: Record<string, JsonSchema>,
+    required: string[] = [],
+    description: string = "Action input.",
+  ): JsonSchema {
+    return this.object(properties, { required, description });
+  },
+
+  actionOutput(
+    properties: Record<string, JsonSchema>,
+    description: string = "Action output.",
+    required: string[] = Object.keys(properties),
+  ): JsonSchema {
+    return this.object(properties, { required, description });
+  },
+};
 
 /**
  * Short alias for provider schema definitions.

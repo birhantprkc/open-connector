@@ -1,12 +1,16 @@
 import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
 
 import { nullableString, optionalRecord, optionalString } from "../../core/cast.ts";
-import { defineProviderExecutors, ProviderRequestError, requireApiKeyCredential } from "../provider-runtime.ts";
+import {
+  defineProviderExecutors,
+  providerUserAgent,
+  ProviderRequestError,
+  requireApiKeyCredential,
+} from "../provider-runtime.ts";
 
 const service = "abstract";
 const abstractEmailValidationBaseUrl = "https://emailvalidation.abstractapi.com";
 const abstractEmailValidationPath = "/v1/";
-const userAgent = "oomol-connect/0.1";
 
 type AbstractRequestPhase = "validate" | "execute";
 
@@ -103,7 +107,7 @@ async function fetchAbstractEmailValidation(
       method: "GET",
       headers: {
         accept: "application/json",
-        "user-agent": userAgent,
+        "user-agent": providerUserAgent,
       },
       signal: context.signal,
     });

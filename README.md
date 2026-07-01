@@ -299,10 +299,11 @@ or newer.
 
 ```bash
 npm install
-npm run generate:catalog
 npm run build:web
 npm run dev
 ```
+
+`npm install` and `npm run dev` create local generated files when they are missing or stale.
 
 When running from source, runtime state is stored in `./data/connect.sqlite` by default. Set
 `OOMOL_CONNECT_DATA_DIR` to use another directory.
@@ -404,7 +405,7 @@ src/
   providers/                Provider definitions and lazy-loaded executors
   server/                   Local HTTP server
 web/                        Vite local console package
-catalog/apps/               Generated public catalog JSON
+catalog/apps/               Local generated catalog JSON (gitignored)
 examples/                   Runnable local examples
 scripts/                    Catalog and registry generation tools
 .codex/skills/add-provider/ Agent-readable provider contribution workflow
@@ -427,8 +428,9 @@ npm test
 npm run build
 ```
 
-Provider definitions generate catalog JSON. Provider executors are loaded only when one of that
-provider's actions is executed.
+Provider definitions generate registry and catalog files. Provider executors are loaded only when
+one of that provider's actions is executed. Generated files are local runtime data and are not
+committed.
 
 ## License Scope
 

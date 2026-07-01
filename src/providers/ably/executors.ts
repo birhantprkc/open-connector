@@ -2,13 +2,17 @@ import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "
 import type { AblyActionName } from "./actions.ts";
 
 import { compactObject, optionalRecord, optionalString, requiredString } from "../../core/cast.ts";
-import { defineProviderExecutors, ProviderRequestError, requireApiKeyCredential } from "../provider-runtime.ts";
+import {
+  defineProviderExecutors,
+  providerUserAgent,
+  ProviderRequestError,
+  requireApiKeyCredential,
+} from "../provider-runtime.ts";
 
 const service = "ably";
 const ablyApiBaseUrl = "https://main.realtime.ably.net";
 const ablyValidationPath = "/stats";
 const defaultChannelSeparator = ",";
-const userAgent = "oomol-connect/0.1";
 
 type AblyRequestPhase = "validate" | "execute";
 
@@ -289,7 +293,7 @@ function buildAblyHeaders(apiKey: string, hasBody: boolean): Record<string, stri
   const headers: Record<string, string> = {
     accept: "application/json",
     authorization: `Basic ${Buffer.from(apiKey).toString("base64")}`,
-    "user-agent": userAgent,
+    "user-agent": providerUserAgent,
   };
   if (hasBody) {
     headers["content-type"] = "application/json";
