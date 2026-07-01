@@ -7,7 +7,7 @@ const service = "greenhouse";
 export const provider: ProviderDefinition = {
   service,
   displayName: "Greenhouse",
-  categories: ["Productivity", "Data & Analytics"],
+  categories: ["Productivity", "Data"],
   authTypes: ["api_key"],
   auth: [
     {

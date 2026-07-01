@@ -7,7 +7,7 @@ const service = "gtmetrix";
 export const provider: ProviderDefinition = {
   service,
   displayName: "GTmetrix",
-  categories: ["Developer Tools", "Data & Analytics"],
+  categories: ["Developer Tools", "Data"],
   authTypes: ["api_key"],
   auth: [
     {

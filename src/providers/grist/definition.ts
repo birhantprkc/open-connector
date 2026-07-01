@@ -7,7 +7,7 @@ const service = "grist";
 export const provider: ProviderDefinition = {
   service,
   displayName: "Grist",
-  categories: ["Productivity", "Data & Analytics"],
+  categories: ["Productivity", "Data"],
   authTypes: ["api_key"],
   auth: [
     {

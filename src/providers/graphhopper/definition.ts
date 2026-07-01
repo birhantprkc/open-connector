@@ -7,7 +7,7 @@ const service = "graphhopper";
 export const provider: ProviderDefinition = {
   service,
   displayName: "GraphHopper",
-  categories: ["Maps & Location", "Developer Tools"],
+  categories: ["Location", "Developer Tools"],
   authTypes: ["api_key"],
   auth: [
     {

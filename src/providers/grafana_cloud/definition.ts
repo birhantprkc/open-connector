@@ -7,7 +7,7 @@ const service = "grafana_cloud";
 export const provider: ProviderDefinition = {
   service,
   displayName: "Grafana Cloud",
-  categories: ["Developer Tools", "Data & Analytics"],
+  categories: ["Developer Tools", "Data"],
   authTypes: ["api_key"],
   auth: [
     {
