@@ -9,14 +9,12 @@
   "scripts": {
     "postinstall": "node scripts/ensure-generated.ts",
     "dev": "node scripts/ensure-generated.ts && node src/server/index.ts",
-    "build": "npm run generate:registry && node scripts/typecheck.ts",
+    "build": "npm run typecheck",
     "build:web": "npm run build --workspace web",
     "dev:web": "npm run dev --workspace web",
     "start": "node scripts/ensure-generated.ts && node src/server/index.ts",
     "test": "vitest run",
-    "typecheck": "node scripts/typecheck.ts",
-    "typecheck:all": "node scripts/typecheck.ts src scripts-all examples",
-    "check:examples": "node scripts/typecheck.ts examples",
+    "typecheck": "npm run generate:registry && node scripts/typecheck.ts src",
     "generate:registry": "node scripts/generate-provider-registry.ts",
     "generate:catalog": "npm run generate:registry && node scripts/generate-catalog.ts",
     "search:actions": "node scripts/ensure-generated.ts && node scripts/search-actions.ts",
@@ -24,7 +22,9 @@
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "format": "oxfmt --check .",
-    "format:fix": "oxfmt ."
+    "format:fix": "oxfmt .",
+    "fix": "npm run lint:fix && npm run format:fix",
+    "fix-check": "npm run fix && npm run typecheck"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.6",

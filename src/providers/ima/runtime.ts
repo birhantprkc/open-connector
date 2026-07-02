@@ -864,9 +864,11 @@ async function getImaKnowledgeItemOriginal(
     mediaInfo,
     content: null,
     file: {
+      fileId: upload.fileId,
+      downloadUrl: upload.downloadUrl,
+      sizeBytes: upload.sizeBytes,
       name,
-      mimetype: mimeType,
-      s3url: upload.downloadUrl,
+      mimeType,
     },
   };
 }

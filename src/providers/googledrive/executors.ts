@@ -92,6 +92,9 @@ const googledriveActionHandlers: Record<string, ActionHandler> = {
   "files.get"(input, { accessToken, fetcher }) {
     return getFileMetadata(input, accessToken, fetcher);
   },
+  "files.export"(input, context) {
+    return exportFile(input, context);
+  },
   "files.create"(input, { accessToken, fetcher }) {
     return createFile(input, accessToken, fetcher);
   },
@@ -484,6 +487,37 @@ async function getFileMetadata(input: Record<string, unknown>, accessToken: stri
   return normalizeDriveFile(payload);
 }
 
+async function exportFile(input: Record<string, unknown>, context: ActionContext) {
+  if (!context.transitFiles) {
+    throw new ProviderRequestError(400, "files.export requires local transit file storage.");
+  }
+
+  const fileId = resolveFileId(input);
+  const requestedMimeType = resolveRequiredString(input, ["mimeType"], "mimeType is required");
+  const response = await googleRequest(`${driveApiBaseUrl}/files/${fileId}/export`, {
+    accessToken: context.accessToken,
+    fetcher: context.fetcher,
+    signal: context.signal,
+    query: compactObject({
+      mimeType: requestedMimeType,
+      supportsAllDrives: String(resolveSupportsAllDrives(input)),
+    }),
+    timeoutMs: 300_000,
+  });
+  const mimeType = response.headers.get("content-type") ?? requestedMimeType;
+  const extension = extensionForExportMimeType(mimeType);
+  const name = `${fileId}${extension}`;
+  const upload = await context.transitFiles.create(new File([await response.arrayBuffer()], name, { type: mimeType }));
+
+  return {
+    fileId,
+    name,
+    mimeType,
+    sizeBytes: upload.sizeBytes,
+    file: upload,
+  };
+}
+
 async function createFile(input: Record<string, unknown>, accessToken: string, fetcher: typeof fetch) {
   const metadata = buildDriveMetadata(input);
   const content = resolveUploadContent(input);
@@ -653,6 +687,30 @@ async function fetchDriveFile(
       supportsAllDrives: String(includeSharedDrives),
     },
   });
+}
+
+function extensionForExportMimeType(mimeType: string): string {
+  const normalized = mimeType.split(";")[0]?.trim().toLowerCase();
+  switch (normalized) {
+    case "application/pdf":
+      return ".pdf";
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      return ".docx";
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+      return ".xlsx";
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      return ".pptx";
+    case "text/plain":
+      return ".txt";
+    case "text/csv":
+      return ".csv";
+    case "text/html":
+      return ".html";
+    case "application/zip":
+      return ".zip";
+    default:
+      return "";
+  }
 }
 
 function normalizeDriveFile(payload: Record<string, unknown>) {

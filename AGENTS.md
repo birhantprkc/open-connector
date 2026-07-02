@@ -47,6 +47,6 @@
 
 ## Verification
 
-- Before finishing code changes, run the smallest relevant checks, then `npm run build`.
+- Before finishing code changes, run `npm run fix-check`, then `npm run build`.
 - Run `npm run generate:catalog` when provider definitions or actions change.
 - Run provider examples manually when the task changes user-facing example behavior.

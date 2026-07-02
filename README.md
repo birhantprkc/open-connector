@@ -401,14 +401,14 @@ Local admin endpoints power the web console, examples, and setup scripts:
 ## Development
 
 ```bash
+npm run fix-check
 npm run generate:catalog
-npm run lint
-npm run format
 npm test
 npm run build
 ```
 
-Formatting and linting use `oxfmt` and `oxlint`.
+`npm run fix-check` runs lint fixes, formatting fixes, and the `src` typecheck. Formatting and
+linting use `oxfmt` and `oxlint`.
 
 ### Project Layout
 

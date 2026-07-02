@@ -1472,12 +1472,37 @@ const actionSources: GoogledriveActionSource[] = [
           ],
           description: "The size of the downloaded file content in bytes.",
         },
-        transitUrl: {
-          type: "string",
-          description: "A temporary transit URL from which the file content can be retrieved.",
+        file: {
+          type: "object",
+          properties: {
+            fileId: {
+              type: "string",
+              description: "The local transit file identifier.",
+            },
+            downloadUrl: {
+              type: "string",
+              description: "A local transit URL from which the exported file content can be retrieved.",
+            },
+            sizeBytes: {
+              type: "integer",
+              minimum: 0,
+              description: "The exported file size in bytes.",
+            },
+            name: {
+              type: "string",
+              description: "The exported transit file name.",
+            },
+            mimeType: {
+              type: "string",
+              description: "The exported transit file MIME type.",
+            },
+          },
+          required: ["fileId", "downloadUrl", "sizeBytes", "name", "mimeType"],
+          additionalProperties: false,
+          description: "The exported file stored in local transit storage.",
         },
       },
-      required: ["fileId", "name", "mimeType", "sizeBytes", "transitUrl"],
+      required: ["fileId", "name", "mimeType", "sizeBytes", "file"],
       additionalProperties: false,
     },
   },

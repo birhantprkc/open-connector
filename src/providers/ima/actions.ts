@@ -392,9 +392,11 @@ export const imaActions: ActionDefinition[] = [
       content: s.nullableString("The note content when the media item is an IMA note."),
       file: s.nullable(
         s.object("A downloaded original file stored in local transit storage.", {
+          fileId: s.string("The local transit file identifier."),
+          downloadUrl: s.url("The local URL for downloading the original file."),
+          sizeBytes: s.nonNegativeInteger("The downloaded file size in bytes."),
           name: s.string("The transit file name."),
-          mimetype: s.string("The MIME type of the downloaded original file."),
-          s3url: s.string("The transit URL for downloading the original file."),
+          mimeType: s.string("The MIME type of the downloaded original file."),
         }),
       ),
     }),
