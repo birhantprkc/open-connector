@@ -1,49 +1,100 @@
-# OOMOL Connect
+# OpenConnector
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Run external-service tools for AI agents from your own machine.
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE.txt)
+![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933)
+![Cloudflare compatible](https://img.shields.io/badge/Cloudflare-compatible-F38020)
+![MCP](https://img.shields.io/badge/MCP-ready-111827)
+![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-6BA539)
 
-OOMOL Connect is a local connector runtime. It lets an agent discover and call typed actions for
-services such as GitHub, Gmail, Notion, Hacker News, Ably, Abstract, and A-Leads without giving the
-agent raw provider tokens. Credentials stay in your local SQLite database; agents see schemas,
-scopes, execution status, and safe account labels.
+OpenConnector is an open-source auth gateway that connects 643 providers, supports
+Cloudflare-compatible deployment, and provides 6,680 prebuilt Actions that AI agents can call
+directly through the [Connector SDK](https://github.com/oomol-lab/connector-sdk),
+[oo CLI](https://github.com/oomol-lab/oo-cli), MCP, and HTTP.
 
-Use it when you want an agent to work with real services, but you still want a local boundary around
-credentials, permissions, and execution history.
+OpenConnector does more than store provider credentials. The gateway, provider catalog, and Action
+executors are open source, so developers can self-host the runtime, inspect every Action contract,
+and give agents a controlled way to work with real SaaS products without rebuilding each integration
+from scratch.
 
-## What It Gives You
+## Why OpenConnector
 
-- A local runtime that exposes provider actions through MCP, HTTP, OpenAPI, and a web console.
-- Local credential storage for API keys, custom credentials, OAuth2 connections, and no-auth
-  providers.
-- Typed action schemas so agents can discover what they can call before they call it.
-- Connection identity and scopes so users and agents can see which account an action will run as.
-- Local temporary file transit for actions that need file URLs.
-- Recent run logs with redacted input summaries and provider errors.
-- A provider catalog with local executors that load only when an action is used.
+- [643 providers and 6,680 prebuilt Actions](docs/providers.md) across SaaS products such as
+  GitHub, Gmail, Notion, BigQuery, Google Analytics, Supabase, Airtable, Slack, and more.
+- Open-source auth gateway for API keys, OAuth2, custom credentials, and no-auth providers.
+- Open-source Action layer with prebuilt request/response schemas and lazy-loaded executors.
+- Cloudflare-compatible runtime for fast self-hosted deployment on Workers, D1, R2, and Static
+  Assets.
+- Agent-ready access through the [Connector SDK](https://github.com/oomol-lab/connector-sdk),
+  [oo CLI](https://github.com/oomol-lab/oo-cli), MCP, HTTP API, OpenAPI, and a local Web Console.
+- Runtime controls for connection identity, scopes, runtime tokens, action allow/block policies,
+  temporary file transit, and redacted run logs.
+
+## Developer Tools
+
+| Tool                                                        | Use it for                                                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [Connector SDK](https://github.com/oomol-lab/connector-sdk) | Call connector Actions, proxy upstream APIs, and inspect the catalog from TypeScript apps and agent runtimes. |
+| [oo CLI](https://github.com/oomol-lab/oo-cli)               | Give local AI agents a command-line entry to discover, inspect, and call connected account capabilities.      |
+| MCP                                                         | Expose app Actions to MCP-capable agent hosts through `http://localhost:3000/mcp`.                            |
+| HTTP / OpenAPI                                              | Call `/v1/actions/*` directly or inspect the generated `/openapi.json` document.                              |
+
+## Connected SaaS Logo Wall
+
+OpenConnector supports a broad provider catalog. Here is a preview of common SaaS connections.
+
+![Connected SaaS logo wall](assets/saas-logo-wall.png)
+
+Provider names and trademarks belong to their respective owners and are used only for identification
+and interoperability.
+
+## How It Works
+
+```mermaid
+flowchart LR
+  Agent["AI Agent / App"] -->|"SDK / CLI / MCP / HTTP"| Gateway["OpenConnector Gateway"]
+  Gateway --> Auth["Credential & OAuth Boundary"]
+  Gateway --> Catalog["Provider Catalog"]
+  Gateway --> Actions["Open-source Action Executors"]
+  Gateway --> Policy["Tokens, Scopes, Allow/Block Policy"]
+  Gateway --> Logs["Run Logs"]
+  Actions --> SaaS["643 Providers"]
+  Console["Web Console"] --> Gateway
+  Cloudflare["Cloudflare Workers, D1, R2"] -. deploy .-> Gateway
+```
+
+Agents discover Actions, inspect schemas and scopes, select a connection alias, and execute through
+the gateway. Provider secrets stay behind the runtime boundary; agents receive only the metadata,
+safe account labels, and execution results they need.
+
+## Deployment Paths
+
+| Path                         | Best for                                     | What you get                                                                      |
+| ---------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
+| OSS self-host                | Developers and teams that want full control  | Local Docker or Node runtime, SQLite storage, MCP, HTTP, OpenAPI, and Web Console |
+| Cloudflare-compatible deploy | Teams that want a lightweight hosted runtime | Workers runtime, D1 state, R2 transit files, and Static Assets for the console    |
+
+## Cloudflare Quick Start Video
+
+Coming soon: a YouTube walkthrough for launching a usable OpenConnector deployment on Cloudflare.
 
 ## Quick Start
 
-The fastest way to try OOMOL Connect is Docker Compose:
+Start the runtime with Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-Open the local console:
+Open the local console and generated API reference:
 
 ```text
 http://localhost:3000
-```
-
-Open the generated API reference:
-
-```text
 http://localhost:3000/docs
 ```
 
-Run a no-auth action to verify the runtime:
+Run a no-auth Action to verify the runtime:
 
 ```bash
 curl -s -X POST http://localhost:3000/v1/actions/hackernews.get_top_stories \
@@ -51,387 +102,63 @@ curl -s -X POST http://localhost:3000/v1/actions/hackernews.get_top_stories \
   -d '{"input":{}}'
 ```
 
-Docker Compose stores runtime state in the `connector-data` volume. The container stores the SQLite
-database at `/app/data/connect.sqlite`.
+See [docs/quickstart.md](docs/quickstart.md) for the full local setup, first provider connection,
+OAuth flow, and runtime settings.
 
-## Connect Your First Provider
+## Connect A Provider
 
-GitHub is the simplest credentialed example because it can use a personal access token.
-
-Inspect the provider contract:
-
-```bash
-curl -s http://localhost:3000/api/providers/github
-```
-
-Store the default GitHub connection:
+GitHub is the simplest credentialed example because it can use a personal access token:
 
 ```bash
 curl -s -X PUT http://localhost:3000/api/connections/github \
   -H 'content-type: application/json' \
   -d '{"authType":"api_key","values":{"apiKey":"github_pat_..."}}'
-```
 
-Call GitHub through OOMOL Connect:
-
-```bash
 curl -s -X POST http://localhost:3000/v1/actions/github.get_current_user \
   -H 'content-type: application/json' \
   -d '{"input":{}}'
 ```
 
-Check configured connections and the account identity exposed to agents:
-
-```bash
-curl -s http://localhost:3000/api/connections
-```
-
-### Named Connections
-
-Add `connectionName` when you want multiple accounts for the same provider:
-
-```bash
-curl -s -X PUT http://localhost:3000/api/connections/github \
-  -H 'content-type: application/json' \
-  -d '{"authType":"api_key","connectionName":"work","values":{"apiKey":"github_pat_..."}}'
-```
-
-Select that account during execution:
-
-```bash
-curl -s -X POST http://localhost:3000/v1/actions/github.get_current_user \
-  -H 'x-oo-connector-alias: work' \
-  -H 'content-type: application/json' \
-  -d '{"input":{}}'
-```
-
-The `alias` query parameter is also accepted.
-
-## Use OAuth Providers
-
-OAuth2 providers use your own provider OAuth app. First list OAuth-capable providers and copy the
-`expectedRedirectUri` for the service you want:
-
-```bash
-curl -s http://localhost:3000/api/oauth/configs
-```
-
-With the default port, GitHub expects this callback URL:
-
-```text
-http://localhost:3000/oauth/callback
-```
-
-Store the OAuth client locally:
-
-```bash
-curl -s -X PUT http://localhost:3000/api/oauth/configs/github \
-  -H 'content-type: application/json' \
-  -d '{"clientId":"...","clientSecret":"..."}'
-```
-
-Start authorization:
-
-```bash
-curl -s -X POST http://localhost:3000/api/oauth/authorizations \
-  -H 'content-type: application/json' \
-  -d '{"service":"github"}'
-```
-
-Open the returned `authorizationUrl` in a browser. After the provider redirects back to the local
-callback URL, OOMOL Connect stores the OAuth credential as the default connection. Add
-`"connectionName":"work"` to the authorization request to store the OAuth result as a named
-connection.
-
-If you change `PORT`, `HOST`, or run behind a tunnel, set `OOMOL_CONNECT_ORIGIN` before starting the
-runtime. The callback URL returned by `/api/oauth/configs` is the URL to paste into the provider
-OAuth app.
+For OAuth2 apps, named connections, credential encryption, token refresh, and action policies, see
+[docs/credentials.md](docs/credentials.md) and [docs/configuration.md](docs/configuration.md).
 
 ## Give Tools To An Agent
 
-OOMOL Connect exposes one local tool boundary and lets the agent discover provider actions from
-there.
+OpenConnector exposes the same Action catalog through multiple agent-friendly surfaces:
 
-### MCP
+- MCP: `http://localhost:3000/mcp`
+- HTTP runtime API: `/v1/actions`
+- OpenAPI document: `/openapi.json`
+- Action guides: `/api/actions/:actionId/agent.md`
+- Web Console examples: cURL, TypeScript, and agent prompt snippets for each Action
 
-Point MCP-capable clients at:
-
-```text
-http://localhost:3000/mcp
-```
-
-The MCP server exposes a small discovery-oriented tool set:
-
-- `list_apps`
-- `search_actions`
-- `get_action_guide`
-- `execute_action`
-
-Preview MCP tool metadata:
-
-```bash
-curl -s http://localhost:3000/mcp/tools
-```
-
-### HTTP Runtime API
-
-Agent and SDK-style clients should call the `/v1` runtime API. It returns a uniform JSON envelope:
-
-```json
-{
-  "success": true,
-  "message": "OK",
-  "data": {},
-  "meta": {}
-}
-```
-
-Discover actions:
-
-```bash
-curl -s http://localhost:3000/v1/actions
-curl -s "http://localhost:3000/v1/actions?service=github"
-curl -s http://localhost:3000/v1/actions/github.get_current_user
-```
-
-Execute an action:
-
-```bash
-curl -s -X POST http://localhost:3000/v1/actions/github.get_current_user \
-  -H 'content-type: application/json' \
-  -d '{"input":{}}'
-```
-
-### Action Guides
-
-Each action has a local markdown guide that includes the input schema, scopes, provider permissions,
-current connection identity, and request examples:
-
-```bash
-curl -s http://localhost:3000/api/actions/github.get_current_user/agent.md
-```
-
-The web console also lets you copy cURL, TypeScript, and agent prompt examples for each action.
+See [docs/runtime-api.md](docs/runtime-api.md) for endpoint details, response envelopes, auth
+headers, MCP tools, and Action guide examples.
 
 ## Web Console
 
-Open `http://localhost:3000` after starting the runtime. Docker Compose builds and serves the web
-console automatically.
+Open `http://localhost:3000` after starting the runtime. The console helps you browse providers,
+save API keys or OAuth client configuration, create runtime tokens, inspect Action schemas, run
+Actions for debugging, review recent runs, and open the generated OpenAPI and MCP metadata.
 
-The console helps you:
+## Cloudflare Deployment
 
-- Browse providers and connection status.
-- Save API keys or OAuth client configuration.
-- Create and revoke runtime API tokens for agents and clients.
-- Inspect action schemas, scopes, and execution status.
-- Run an action from the browser for debugging.
-- Review recent local runs.
-- Open the generated OpenAPI and MCP metadata.
+OpenConnector supports Cloudflare Workers as a metadata and runtime-state deployment target using
+Workers, D1, R2, and Static Assets.
 
-## Protect The Local Runtime
-
-By default, the server binds to `127.0.0.1`. Set an admin token when anything outside your own
-browser or shell can reach the local admin API or web console:
-
-```bash
-OOMOL_CONNECT_ADMIN_TOKEN="replace-with-an-admin-token" docker compose up --build
-```
-
-Admin HTTP clients must then send:
-
-```text
-Authorization: Bearer replace-with-an-admin-token
-```
-
-Create runtime tokens for `/v1` and `/mcp` callers from the Web Console Access tab. The token is
-shown once when created; only a hash is stored in SQLite.
-
-You can also create one through the local admin API:
-
-```bash
-curl -s -X POST http://localhost:3000/api/runtime-tokens \
-  -H 'content-type: application/json' \
-  -d '{"name":"Claude Desktop"}'
-```
-
-Runtime clients then send the returned `token`:
-
-```text
-Authorization: Bearer oct_...
-```
-
-For bootstrap scripts and backward compatibility, `OOMOL_CONNECT_RUNTIME_TOKEN` is still accepted:
-
-```bash
-OOMOL_CONNECT_ADMIN_TOKEN="replace-with-an-admin-token" \
-OOMOL_CONNECT_RUNTIME_TOKEN="replace-with-a-runtime-token" \
-docker compose up --build
-```
-
-Encrypt stored provider credentials and OAuth client secrets:
-
-```bash
-OOMOL_CONNECT_ENCRYPTION_KEY="replace-with-a-long-random-secret" docker compose up --build
-```
-
-Constrain which actions agents can execute:
-
-```bash
-OOMOL_CONNECT_ALLOWED_ACTIONS="hackernews.*,github.get_current_user" docker compose up --build
-```
-
-Block specific actions even when a broader allowlist includes them:
-
-```bash
-OOMOL_CONNECT_ALLOWED_ACTIONS="github.*" \
-OOMOL_CONNECT_BLOCKED_ACTIONS="github.delete_repository" \
-docker compose up --build
-```
-
-See [docs/credentials.md](docs/credentials.md) for credential storage, key rotation, and
-OAuth token refresh behavior.
-
-## Run From Source
-
-Use the source workflow when you are developing OOMOL Connect or provider executors. Use Node.js 22
-or newer.
-
-```bash
-npm install
-npm run build:web
-npm run dev
-```
-
-`npm install` and `npm run dev` create local generated files when they are missing or stale.
-
-When running from source, runtime state is stored in `./data/connect.sqlite` by default. Set
-`OOMOL_CONNECT_DATA_DIR` to use another directory.
-
-## Deploy To Cloudflare Workers
-
-Cloudflare Workers is supported as a metadata and runtime-state deployment target:
-
-```bash
-git clone https://github.com/oomol-lab/open-connector.git
-cd open-connector
-npm install
-cp wrangler.example.jsonc wrangler.local.jsonc
-npx wrangler login
-npx wrangler d1 create open-connector
-npx wrangler r2 bucket create open-connector-transit-files
-```
-
-Update ignored `wrangler.local.jsonc` with the D1 `database_id` returned by Cloudflare before
-running remote migrations or deploying. All Wrangler commands that read the Worker config should use
-`--config wrangler.local.jsonc`.
-
-Set secrets with Wrangler instead of committing them to config:
-
-```bash
-npx wrangler secret put OOMOL_CONNECT_ADMIN_TOKEN --config wrangler.local.jsonc
-npx wrangler secret put OOMOL_CONNECT_ENCRYPTION_KEY --config wrangler.local.jsonc
-```
-
-`OOMOL_CONNECT_ADMIN_TOKEN` is recommended for protecting the admin API, docs, and web console.
-`OOMOL_CONNECT_ENCRYPTION_KEY` is required when credential encryption is needed. Then apply the D1
-schema and deploy:
-
-```bash
-npx wrangler d1 migrations apply open-connector --remote --config wrangler.local.jsonc
-npm run deploy:cloudflare
-```
-
-`npm run deploy:cloudflare` generates the catalog, builds the web console, copies catalog assets, and
-runs `wrangler deploy --config wrangler.local.jsonc`.
-
-The Cloudflare runtime serves catalog metadata, `/api` and `/v1` metadata endpoints, connections,
-runtime tokens, OAuth config/state, R2-backed transit files, and the same generated provider action
-executor registry used by the Node runtime. Configure an R2 lifecycle rule for the transit bucket if
-you want unread expired transit files cleaned up automatically.
-
-## Examples
-
-Start the local runtime first:
-
-```bash
-docker compose up --build
-```
-
-Then run examples directly with Node:
-
-```bash
-node examples/local-http/hackernews.ts
-GITHUB_TOKEN=github_pat_... node examples/local-http/github.ts
-node examples/mcp-client/list-tools.ts
-node examples/openai-tools/list-tools.ts
-```
-
-For an OpenAI tool-call loop:
-
-```bash
-OPENAI_API_KEY=sk-... OPENAI_MODEL=gpt-... node examples/openai-tools/run-hackernews.ts
-```
-
-Upload a temporary local transit file for actions that accept a file URL:
-
-```bash
-curl -s -X POST http://localhost:3000/api/files \
-  -F "file=@./report.pdf"
-```
-
-The response includes a `downloadUrl` under `/api/files/:fileId`. Local transit files are stored
-under `OOMOL_CONNECT_DATA_DIR/files` and are cleaned up by age.
-
-## Runtime API Surface
-
-Public runtime endpoints:
-
-- `GET /v1/health`
-- `GET /v1/providers`
-- `GET /v1/actions`
-- `GET /v1/actions?service=<service>`
-- `GET /v1/actions/:actionId`
-- `POST /v1/actions/:actionId`
-- `GET /v1/apps`
-- `GET /v1/apps/services/:service`
-- `GET /v1/apps/authenticated`
-- `POST /v1/proxy/:service`
-
-`POST /v1/proxy/:service` currently returns `proxy_not_supported` until a provider proxy runtime is
-implemented.
-
-Local admin endpoints power the web console, examples, and setup scripts:
-
-- `GET /api/providers`
-- `GET /api/providers/:service`
-- `GET /api/actions`
-- `GET /api/actions/:actionId`
-- `GET /api/actions/:actionId/agent.md`
-- `POST /api/files`
-- `GET /api/files/:fileId`
-- `DELETE /api/files/:fileId`
-- `GET /api/connections`
-- `PUT /api/connections/:service`
-- `DELETE /api/connections/:service`
-- `GET /api/oauth/configs`
-- `PUT /api/oauth/configs/:service`
-- `DELETE /api/oauth/configs/:service`
-- `POST /api/oauth/authorizations`
-- `GET /oauth/callback/:service`
-- `GET /api/runtime-tokens`
-- `POST /api/runtime-tokens`
-- `DELETE /api/runtime-tokens/:id`
-- `GET /api/runs`
-- `POST /mcp`
-- `GET /mcp/tools`
-- `GET /openapi.json`
+See [docs/cloudflare.md](docs/cloudflare.md) for resource creation, migrations, secrets, local Worker
+preview, and remote deployment.
 
 ## Documentation
 
 - [Quickstart](docs/quickstart.md)
+- [Developer tools](docs/sdk-cli.md)
+- [Provider coverage](docs/providers.md)
+- [Runtime API and MCP](docs/runtime-api.md)
+- [Cloudflare deployment](docs/cloudflare.md)
 - [Configuration](docs/configuration.md)
+- [Credentials and OAuth](docs/credentials.md)
 - [Catalog format](docs/catalog-format.md)
-- [Credentials](docs/credentials.md)
 - [Verification language](docs/verification.md)
 - [Contributing](CONTRIBUTING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
@@ -439,49 +166,23 @@ Local admin endpoints power the web console, examples, and setup scripts:
 
 ## Development
 
-```bash
-npm run fix-check
-npm run generate:catalog
-npm test
-```
-
-`npm run fix-check` runs lint fixes, formatting fixes, and the `src` typecheck. Formatting and
-linting use `oxfmt` and `oxlint`. Run `npm run build` separately only when you need a no-fix
-typecheck, such as CI parity after generated files changed.
-
-### Project Layout
-
-```text
-src/
-  core/                     Core provider/action contracts and validation
-  oauth/                    Local OAuth client configuration and callback flow
-  providers/                Provider definitions and lazy-loaded executors
-  server/                   Local HTTP server
-web/                        Vite local console package
-catalog/apps/               Local generated catalog JSON (gitignored)
-examples/                   Runnable local examples
-scripts/                    Catalog and registry generation tools
-.codex/skills/add-provider/ Agent-readable provider contribution workflow
-docs/                       User and contributor documentation
-```
-
-### Adding Providers
-
-Provider code lives under `src/providers/<service>`.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md#adding-providers) for provider contribution rules.
-
-Typical provider workflow:
+Use Node.js 22 or newer:
 
 ```bash
-npm run generate:catalog
+npm install
+npm run build:web
+npm run dev
+```
+
+Before opening a pull request:
+
+```bash
 npm run fix-check
 npm test
 ```
 
-Provider definitions generate registry and catalog files. Provider executors are loaded only when
-one of that provider's actions is executed. Generated files are local runtime data and are not
-committed.
+Provider code lives under `src/providers/<service>`. See
+[CONTRIBUTING.md](CONTRIBUTING.md#adding-providers) for provider contribution rules.
 
 ## License Scope
 

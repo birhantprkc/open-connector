@@ -26,7 +26,7 @@ OOMOL_CONNECT_ENCRYPTION_KEY="replace-with-a-long-random-secret" npm run dev
 ```
 
 The runtime uses AES-256-GCM for records that contain provider credentials or OAuth client
-configuration. The key is not stored by OOMOL Connect; if it is lost, encrypted records cannot be
+configuration. The key is not stored by OpenConnector; if it is lost, encrypted records cannot be
 recovered.
 
 Without `OOMOL_CONNECT_ENCRYPTION_KEY`, the runtime stays usable for local development and prints a

@@ -1,6 +1,6 @@
 # Configuration
 
-OOMOL Connect is configured with environment variables.
+OpenConnector is configured with environment variables.
 
 | Variable                                 | Default                   | Purpose                                                                        |
 | ---------------------------------------- | ------------------------- | ------------------------------------------------------------------------------ |
