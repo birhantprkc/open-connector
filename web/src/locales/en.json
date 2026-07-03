@@ -47,7 +47,7 @@
     "loadRuntimeFailed": "Failed to load runtime data.",
     "primaryNav": "Primary",
     "refreshData": "Refresh data",
-    "clearTypedToken": "Clear typed token",
+    "logout": "Log out",
     "headings": {
       "overview": {
         "title": "Overview",

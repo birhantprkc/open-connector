@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { AccessPage } from "./access-page";
 import { ActionsPage } from "./actions-page";
-import { ApiError, apiGet } from "./api";
+import { ApiError, apiGet, apiPost } from "./api";
 import { persistLang, supportedLangs } from "./i18n";
 import { emptyData } from "./model";
 import { OverviewPage } from "./overview-page";
@@ -33,9 +33,18 @@ const navItems = [
   { path: "/resources", labelKey: "nav.docs", icon: BookOpen },
 ] as const;
 
+interface AuthSession {
+  adminAuthConfigured: boolean;
+  authenticated: boolean;
+}
+
 export function App(): ReactNode {
   const t = useTranslate();
   const [data, setData] = useState<AppData>(emptyData);
+  const [authSession, setAuthSession] = useState<AuthSession>({
+    adminAuthConfigured: false,
+    authenticated: true,
+  });
   const [adminToken, setAdminToken] = useState("");
   const [locked, setLocked] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -52,8 +61,9 @@ export function App(): ReactNode {
       apiGet<OAuthConfig[]>("/api/oauth/configs", { adminToken }),
       apiGet<RuntimeTokenSummary[]>("/api/runtime-tokens", { adminToken }),
       apiGet<RunLogPage>("/api/runs", { adminToken }),
+      apiGet<AuthSession>("/api/auth/session", { adminToken }),
     ])
-      .then(([providers, connections, oauthConfigs, runtimeTokens, runPage]) => {
+      .then(([providers, connections, oauthConfigs, runtimeTokens, runPage, session]) => {
         if (!cancelled) {
           setData({
             providers,
@@ -63,6 +73,7 @@ export function App(): ReactNode {
             runs: runPage.items,
             runsNextCursor: runPage.nextCursor,
           });
+          setAuthSession(session);
           setLocked(false);
           setError(null);
         }
@@ -73,6 +84,7 @@ export function App(): ReactNode {
         }
         if (caught instanceof ApiError && caught.status === 401) {
           setData(emptyData);
+          setAuthSession({ adminAuthConfigured: true, authenticated: false });
           setLocked(true);
           setError(adminToken.trim() ? t("shell.invalidAdminToken") : null);
           return;
@@ -102,9 +114,14 @@ export function App(): ReactNode {
     refresh();
   }
 
-  function clearClientToken(): void {
-    setAdminToken("");
-    refresh();
+  function logout(): void {
+    void apiPost("/api/auth/logout", {}, { adminToken })
+      .catch(() => undefined)
+      .finally(() => {
+        setAdminToken("");
+        setAuthSession((session) => ({ ...session, authenticated: false }));
+        refresh();
+      });
   }
 
   if (locked) {
@@ -119,10 +136,11 @@ export function App(): ReactNode {
     <AppShell
       data={data}
       adminToken={adminToken}
+      showLogout={authSession.adminAuthConfigured && authSession.authenticated}
       loading={loading}
       error={error}
       onRefresh={refresh}
-      onClearClientToken={clearClientToken}
+      onLogout={logout}
     />
   );
 }
@@ -143,10 +161,11 @@ function InitialLoadingView(): ReactNode {
 function AppShell(props: {
   data: AppData;
   adminToken: string;
+  showLogout: boolean;
   loading: boolean;
   error: string | null;
   onRefresh(): void;
-  onClearClientToken(): void;
+  onLogout(): void;
 }): ReactNode {
   const t = useTranslate();
   const location = useLocation();
@@ -192,9 +211,9 @@ function AppShell(props: {
             <button className="icon-button compact" onClick={props.onRefresh} aria-label={t("shell.refreshData")}>
               {props.loading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
             </button>
-            {props.adminToken ? (
-              <button className="secondary-button compact" onClick={props.onClearClientToken}>
-                {t("shell.clearTypedToken")}
+            {props.showLogout ? (
+              <button className="secondary-button compact" onClick={props.onLogout}>
+                {t("shell.logout")}
               </button>
             ) : null}
           </div>

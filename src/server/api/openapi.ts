@@ -94,6 +94,23 @@ export function createOpenApiDocument(
 
   const paths: Record<string, unknown> = {
     "/health": getOperation("System", "Runtime health check.", { ok: jsonSchema.boolean() }),
+    "/api/auth/session": getOperation("System", "Read local admin auth session state.", {
+      $ref: "#/components/schemas/LocalAuthSession",
+    }),
+    "/api/auth/logout": {
+      post: {
+        tags: ["System"],
+        summary: "Clear the local admin auth cookie.",
+        responses: {
+          200: jsonResponse(
+            jsonSchema.object(
+              { ok: jsonSchema.boolean() },
+              { required: ["ok"], description: "Local auth logout response." },
+            ),
+          ),
+        },
+      },
+    },
     "/api/providers": getOperation("Catalog", "List provider catalog entries.", {
       type: "array",
       items: { $ref: "#/components/schemas/ProviderDefinition" },
@@ -173,6 +190,20 @@ export function createOpenApiDocument(
     components: {
       schemas: {
         ActionDefinition: jsonSchema.unknownObject("Public action catalog definition with runtime execution status."),
+        LocalAuthSession: jsonSchema.object(
+          {
+            adminAuthConfigured: jsonSchema.boolean({
+              description: "Whether the local admin API requires an admin bearer token.",
+            }),
+            authenticated: jsonSchema.boolean({
+              description: "Whether this request is authenticated for local admin APIs.",
+            }),
+          },
+          {
+            required: ["adminAuthConfigured", "authenticated"],
+            description: "Local web console admin authentication state.",
+          },
+        ),
         ActionSearchResult: jsonSchema.object(
           {
             id: jsonSchema.string({ description: "The unique action identifier." }),

@@ -1,10 +1,11 @@
 import type { Context, MiddlewareHandler } from "hono";
 
-import { getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { isConsoleShellRequest } from "./console-paths.ts";
 import { jsonError } from "./http-utils.ts";
 
-const authCookieName = "oomol_connect_admin_token";
+const authCookieName = "oomol_connect_admin_session";
+const authCookieVersion = "v1";
 
 /**
  * Optional local API authentication for HTTP, web console, and MCP callers.
@@ -15,6 +16,11 @@ export type LocalAuthOptions = {
   hasRuntimeTokens?(): Promise<boolean>;
   verifyRuntimeToken?(token: string): Promise<boolean>;
 };
+
+export interface LocalAuthSession {
+  adminAuthConfigured: boolean;
+  authenticated: boolean;
+}
 
 type AuthScope = "admin" | "runtime";
 
@@ -36,14 +42,14 @@ export function createLocalAuthMiddleware(options: LocalAuthOptions): Middleware
 
     if (await hasValidToken(context, options, scope)) {
       if (scope === "admin") {
-        installAdminCookieForBearer(context, options);
+        await installAdminCookieForBearer(context, options);
       }
       await next();
       return;
     }
 
     if (canUseAdminAuth(context.req.path, context.req.method) && (await hasValidToken(context, options, "admin"))) {
-      installAdminCookieForBearer(context, options);
+      await installAdminCookieForBearer(context, options);
       await next();
       return;
     }
@@ -52,13 +58,13 @@ export function createLocalAuthMiddleware(options: LocalAuthOptions): Middleware
   };
 }
 
-function installLocalAuthCookie(context: Context, options: LocalAuthOptions): void {
+async function installLocalAuthCookie(context: Context, options: LocalAuthOptions): Promise<void> {
   const token = normalizeToken(options.adminToken);
   if (!token) {
     return;
   }
 
-  setCookie(context, authCookieName, token, {
+  setCookie(context, authCookieName, await createAuthCookieValue(token), {
     httpOnly: true,
     sameSite: "Strict",
     secure: context.req.url.startsWith("https://"),
@@ -71,15 +77,38 @@ function isPublicPath(path: string, method: string): boolean {
     path === "/health" ||
     path === "/oauth/callback" ||
     path.startsWith("/oauth/callback/") ||
+    (method === "GET" && path === "/api/auth/session") ||
+    (method === "POST" && path === "/api/auth/logout") ||
     (method === "GET" && path.startsWith("/api/files/")) ||
     isConsoleShellRequest(path, method)
   );
 }
 
-function installAdminCookieForBearer(context: Context, options: LocalAuthOptions): void {
+export async function readLocalAuthSession(context: Context, options: LocalAuthOptions): Promise<LocalAuthSession> {
+  const adminToken = normalizeToken(options.adminToken);
+  if (!adminToken) {
+    return { adminAuthConfigured: false, authenticated: true };
+  }
+
+  return {
+    adminAuthConfigured: true,
+    authenticated: await hasRequestToken(context, adminToken),
+  };
+}
+
+export function clearLocalAuthCookie(context: Context): void {
+  deleteCookie(context, authCookieName, {
+    httpOnly: true,
+    sameSite: "Strict",
+    secure: context.req.url.startsWith("https://"),
+    path: "/",
+  });
+}
+
+async function installAdminCookieForBearer(context: Context, options: LocalAuthOptions): Promise<void> {
   const token = normalizeToken(options.adminToken);
   if (token && context.req.header("authorization") === `Bearer ${token}`) {
-    installLocalAuthCookie(context, options);
+    await installLocalAuthCookie(context, options);
   }
 }
 
@@ -95,16 +124,65 @@ async function hasValidToken(context: Context, options: LocalAuthOptions, scope:
     return hasValidStoredRuntimeToken(context, options);
   }
 
-  const authorization = context.req.header("authorization") ?? "";
-  if (authorization === `Bearer ${token}`) {
-    return true;
-  }
-
-  if (getCookie(context, authCookieName) === token) {
+  if (await hasRequestToken(context, token)) {
     return true;
   }
 
   return scope === "runtime" ? await hasValidStoredRuntimeToken(context, options) : false;
+}
+
+async function hasRequestToken(context: Context, token: string): Promise<boolean> {
+  const authorization = context.req.header("authorization") ?? "";
+  return authorization === `Bearer ${token}` || (await hasValidAuthCookie(context, token));
+}
+
+async function hasValidAuthCookie(context: Context, token: string): Promise<boolean> {
+  const cookie = getCookie(context, authCookieName);
+  if (!cookie) {
+    return false;
+  }
+
+  const [version, issuedAt, nonce, signature, ...extra] = cookie.split(".");
+  if (version !== authCookieVersion || !issuedAt || !nonce || !signature || extra.length > 0) {
+    return false;
+  }
+
+  const payload = `${version}.${issuedAt}.${nonce}`;
+  return constantTimeEqual(signature, await signAuthCookiePayload(payload, token));
+}
+
+async function createAuthCookieValue(token: string): Promise<string> {
+  const payload = `${authCookieVersion}.${Date.now()}.${base64Url(crypto.getRandomValues(new Uint8Array(16)))}`;
+  return `${payload}.${await signAuthCookiePayload(payload, token)}`;
+}
+
+async function signAuthCookiePayload(payload: string, token: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", utf8(token), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return base64Url(await crypto.subtle.sign("HMAC", key, utf8(payload)));
+}
+
+function utf8(value: string): ArrayBuffer {
+  return new TextEncoder().encode(value).buffer as ArrayBuffer;
+}
+
+function base64Url(value: ArrayBuffer | ArrayBufferView): string {
+  const bytes =
+    value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  return Buffer.from(bytes).toString("base64url");
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 function normalizeToken(token: string | undefined): string | undefined {

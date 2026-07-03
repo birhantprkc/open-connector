@@ -47,7 +47,7 @@
     "loadRuntimeFailed": "加载运行时数据失败。",
     "primaryNav": "主导航",
     "refreshData": "刷新数据",
-    "clearTypedToken": "清除已输入 token",
+    "logout": "登出",
     "headings": {
       "overview": {
         "title": "概览",

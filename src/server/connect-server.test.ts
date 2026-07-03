@@ -668,10 +668,62 @@ describe("ConnectServer", () => {
         headers: { authorization: "Bearer local-token" },
       });
       expect(authorized.status).toBe(200);
-      expect(authorized.headers.get("set-cookie")).toContain("oomol_connect_admin_token=");
+      expect(authorized.headers.get("set-cookie")).toContain("oomol_connect_admin_session=");
+      expect(authorized.headers.get("set-cookie")).not.toContain("local-token");
+
+      const logout = await app.request("/api/auth/logout", { method: "POST" });
+      expect(logout.status).toBe(200);
+      expect(logout.headers.get("set-cookie")).toContain("oomol_connect_admin_session=;");
+      expect(logout.headers.get("set-cookie")).toContain("Max-Age=0");
     } finally {
       await rm(staticRoot, { recursive: true, force: true });
     }
+  });
+
+  it("reports local admin auth session state", async () => {
+    const app = createTestServer([apiKeyProvider], {
+      auth: { adminToken: "local-token" },
+    }).createApp();
+
+    const unauthenticated = await app.request("/api/auth/session");
+    expect(unauthenticated.status).toBe(200);
+    await expect(unauthenticated.json()).resolves.toEqual({
+      adminAuthConfigured: true,
+      authenticated: false,
+    });
+
+    const bearer = await app.request("/api/auth/session", {
+      headers: { authorization: "Bearer local-token" },
+    });
+    expect(bearer.status).toBe(200);
+    await expect(bearer.json()).resolves.toEqual({
+      adminAuthConfigured: true,
+      authenticated: true,
+    });
+
+    const authorized = await app.request("/api/providers", {
+      headers: { authorization: "Bearer local-token" },
+    });
+    const cookie = authorized.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const cookieSession = await app.request("/api/auth/session", {
+      headers: { cookie },
+    });
+    expect(cookieSession.status).toBe(200);
+    await expect(cookieSession.json()).resolves.toEqual({
+      adminAuthConfigured: true,
+      authenticated: true,
+    });
+  });
+
+  it("reports no local admin auth requirement when no admin token is configured", async () => {
+    const app = createTestServer([apiKeyProvider]).createApp();
+
+    const response = await app.request("/api/auth/session");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      adminAuthConfigured: false,
+      authenticated: true,
+    });
   });
 
   it("does not accept the admin token for stored runtime token access", async () => {

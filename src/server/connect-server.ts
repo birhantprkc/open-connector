@@ -21,7 +21,7 @@ import { OAuthClientConfigError, OAuthClientConfigService } from "../oauth/oauth
 import { OAuthFlowError, OAuthFlowService } from "../oauth/oauth-flow-service.ts";
 import { ActionRunner } from "./actions/action-runner.ts";
 import { renderActionMarkdown } from "./api/action-markdown.ts";
-import { createLocalAuthMiddleware } from "./api/auth.ts";
+import { clearLocalAuthCookie, createLocalAuthMiddleware, readLocalAuthSession } from "./api/auth.ts";
 import { escapeHtml, HttpRequestError, internalError, jsonError, notFound, readJsonBody } from "./api/http-utils.ts";
 import { createOpenApiDocument } from "./api/openapi.ts";
 import {
@@ -129,6 +129,11 @@ export class ConnectServer {
       this.getActionMarkdown(context, context.req.param("actionId")),
     );
     app.get("/api/actions/:actionId", (context) => this.getAction(context, context.req.param("actionId")));
+    app.get("/api/auth/session", async (context) => context.json(await readLocalAuthSession(context, auth)));
+    app.post("/api/auth/logout", (context) => {
+      clearLocalAuthCookie(context);
+      return context.json({ ok: true });
+    });
 
     app.get("/api/connections", (context) => this.listConnections(context));
     app.put("/api/connections/:service", (context) => this.upsertConnection(context, context.req.param("service")));
