@@ -1,4 +1,10 @@
-import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidators,
+  ExecutionContext,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+  ProxyExecutionResult,
+} from "../../core/types.ts";
 import type { VoiceflowActionName } from "./actions.ts";
 
 import {
@@ -11,10 +17,16 @@ import {
 } from "../../core/cast.ts";
 import {
   createProviderTimeout,
+  createProviderProxyUrl,
   defineProviderExecutors,
+  normalizeProviderProxyEndpoint,
+  normalizeProviderProxyHeaders,
   providerUserAgent,
   ProviderRequestError,
+  readProviderProxyErrorMessage,
+  readProviderProxyResponse,
   requireApiKeyCredential,
+  toProviderProxyError,
 } from "../provider-runtime.ts";
 
 const service = "voiceflow";
@@ -92,6 +104,43 @@ export const executors: ProviderExecutors = defineProviderExecutors<VoiceflowAct
     };
   },
 });
+
+export const proxy: ProviderProxyExecutor = async (input, context): Promise<ProxyExecutionResult> => {
+  try {
+    const credential = await requireApiKeyCredential(context, service);
+    const endpoint = normalizeProviderProxyEndpoint(input.endpoint);
+    const url = createProviderProxyUrl(resolveProxyBaseUrl(endpoint), endpoint, input.query);
+    const headers = normalizeProviderProxyHeaders(input.headers);
+    headers.set("accept", "application/json");
+    headers.set("authorization", credential.apiKey);
+    headers.set("user-agent", providerUserAgent);
+
+    const init: RequestInit = {
+      method: input.method,
+      headers,
+      signal: context.signal,
+    };
+    if (input.body !== undefined) {
+      init.body = typeof input.body === "string" ? input.body : JSON.stringify(input.body);
+      if (!headers.has("content-type") && typeof input.body !== "string") {
+        headers.set("content-type", "application/json");
+      }
+    }
+
+    const response = await fetch(url, init);
+    if (!response.ok) {
+      const text = await readProviderProxyErrorMessage(response, "");
+      throw new ProviderRequestError(response.status, text || `provider request failed with HTTP ${response.status}`);
+    }
+
+    return {
+      ok: true,
+      response: await readProviderProxyResponse(response),
+    };
+  } catch (error) {
+    return toProviderProxyError(error, "provider request failed");
+  }
+};
 
 export const credentialValidators: CredentialValidators = {
   async apiKey(input, { fetcher, signal }) {
@@ -322,6 +371,10 @@ function resolveEnvironmentAlias(input: Record<string, unknown>, context: Voicef
 
 function readEnvironmentAlias(values: Record<string, unknown>): string | undefined {
   return optionalString(values.environmentAlias) ?? optionalString(values.defaultEnvironmentAlias);
+}
+
+function resolveProxyBaseUrl(endpoint: string): string {
+  return endpoint.startsWith("/v1alpha1/") ? realtimeBaseUrl : generalRuntimeBaseUrl;
 }
 
 function buildVoiceflowHeaders(apiKey: string, hasBody: boolean): Record<string, string> {

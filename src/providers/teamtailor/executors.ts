@@ -1,4 +1,9 @@
-import type { CredentialValidationResult, CredentialValidators, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidationResult,
+  CredentialValidators,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+} from "../../core/types.ts";
 import type { ApiKeyProviderContext, ProviderFetch } from "../provider-runtime.ts";
 import type { TeamtailorActionName } from "./actions.ts";
 
@@ -6,6 +11,7 @@ import { compactObject, optionalRecord, optionalString, requiredRecord, required
 import {
   createProviderTimeout,
   defineProviderExecutors,
+  defineProviderProxy,
   isAbortLikeError,
   providerUserAgent,
   ProviderRequestError,
@@ -78,6 +84,20 @@ export const executors: ProviderExecutors = defineProviderExecutors<TeamtailorCo
       providerContext.transitFiles = context.transitFiles;
     }
     return providerContext;
+  },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: async (context) => {
+    const credential = await requireApiKeyCredential(context, service);
+    return getTeamtailorBaseUrl(
+      readStack(optionalString(credential.values.stack) ?? optionalString(credential.metadata.stack)),
+    );
+  },
+  auth: { type: "api_key_authorization", prefix: "Token token=" },
+  customizeRequest({ headers }) {
+    headers.set("x-api-version", teamtailorApiVersion);
   },
 });
 

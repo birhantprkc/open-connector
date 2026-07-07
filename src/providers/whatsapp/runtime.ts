@@ -6,8 +6,8 @@ import { compactObject, optionalRecord, optionalString } from "../../core/cast.t
 import { jsonObject } from "../../core/request.ts";
 import { ProviderRequestError, providerUserAgent, readTransitFileInput } from "../provider-runtime.ts";
 
-const whatsappGraphApiBaseUrl = "https://graph.facebook.com";
-const whatsappGraphApiVersion = "v23.0";
+export const whatsappGraphApiBaseUrl = "https://graph.facebook.com";
+export const whatsappGraphApiVersion = "v23.0";
 const whatsappMeFields = "id,name";
 
 type WhatsAppPhase = "validate" | "execute";

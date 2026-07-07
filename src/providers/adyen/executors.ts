@@ -1,8 +1,14 @@
-import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidators,
+  ExecutionContext,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+} from "../../core/types.ts";
 import type { AdyenActionName } from "./actions.ts";
 
 import { compactObject, nullableString, optionalInteger, optionalRecord, optionalString } from "../../core/cast.ts";
 import {
+  defineProviderProxy,
   defineProviderExecutors,
   providerUserAgent,
   ProviderRequestError,
@@ -67,6 +73,15 @@ export const executors: ProviderExecutors = defineProviderExecutors<AdyenActionC
       signal: context.signal,
     };
   },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: async (context) => {
+    const credential = await requireApiKeyCredential(context, service);
+    return buildAdyenApiBaseUrl(readStoredEnvironment(credential.values, credential.metadata));
+  },
+  auth: { type: "api_key_header", name: "x-api-key" },
 });
 
 export const credentialValidators: CredentialValidators = {

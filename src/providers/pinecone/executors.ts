@@ -1,8 +1,18 @@
-import type { CredentialValidators } from "../../core/types.ts";
+import type { CredentialValidators, ProviderProxyExecutor } from "../../core/types.ts";
 
-import { executors, validatePineconeCredential } from "./runtime.ts";
+import { defineProviderProxy } from "../provider-runtime.ts";
+import { executors, pineconeApiVersion, pineconeControlApiBaseUrl, validatePineconeCredential } from "./runtime.ts";
 
 export { executors };
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service: "pinecone",
+  baseUrl: pineconeControlApiBaseUrl,
+  auth: { type: "api_key_header", name: "api-key" },
+  customizeRequest({ headers }) {
+    headers.set("x-pinecone-api-version", pineconeApiVersion);
+  },
+});
 
 export const credentialValidators: CredentialValidators = {
   apiKey(input, { fetcher }) {

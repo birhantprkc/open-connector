@@ -1,4 +1,10 @@
-import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidators,
+  ExecutionContext,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+  ResolvedCredential,
+} from "../../core/types.ts";
 import type { ProviderRuntimeHandler } from "../provider-runtime.ts";
 import type { NyneAiActionName } from "./actions.ts";
 
@@ -7,6 +13,7 @@ import { assertPublicHttpUrl } from "../../core/request.ts";
 import {
   createProviderTimeout,
   defineProviderExecutors,
+  defineProviderProxy,
   isAbortLikeError,
   ProviderRequestError,
   providerUserAgent,
@@ -179,6 +186,19 @@ export const executors: ProviderExecutors = defineProviderExecutors<NyneAiAction
       fetcher,
       signal: context.signal,
     };
+  },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: nyneAiApiBaseUrl,
+  auth: { type: "api_key_header", name: "x-api-key" },
+  customizeRequest({ headers, credential }) {
+    const apiCredential = credential as Extract<ResolvedCredential, { authType: "api_key" }>;
+    headers.set(
+      "x-api-secret",
+      requiredString(apiCredential.values.apiSecret, "apiSecret", (message) => new ProviderRequestError(401, message)),
+    );
   },
 });
 

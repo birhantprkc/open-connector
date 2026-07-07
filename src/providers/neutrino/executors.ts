@@ -1,7 +1,17 @@
-import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidators,
+  ExecutionContext,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+} from "../../core/types.ts";
 
-import { defineProviderExecutors, ProviderRequestError, requireApiKeyCredential } from "../provider-runtime.ts";
-import { neutrinoActionHandlers, validateNeutrinoCredential } from "./runtime.ts";
+import {
+  defineProviderExecutors,
+  defineProviderProxy,
+  ProviderRequestError,
+  requireApiKeyCredential,
+} from "../provider-runtime.ts";
+import { neutrinoActionHandlers, neutrinoApiBaseUrl, validateNeutrinoCredential } from "./runtime.ts";
 
 const service = "neutrino";
 
@@ -23,6 +33,20 @@ export const executors: ProviderExecutors = defineProviderExecutors<NeutrinoCont
       fetcher,
       signal: context.signal,
     };
+  },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: neutrinoApiBaseUrl,
+  auth: { type: "api_key_header", name: "api-key" },
+  customizeRequest({ headers, credential }) {
+    if (credential?.authType === "api_key") {
+      headers.set(
+        "user-id",
+        requireNeutrinoUserId(credential.values, credential.metadata, 500, "Neutrino userId is missing."),
+      );
+    }
   },
 });
 

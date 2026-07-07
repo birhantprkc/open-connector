@@ -3,11 +3,16 @@ import type {
   ExecutionContext,
   ExecutionResult,
   ProviderExecutors,
+  ProviderProxyExecutor,
+  ProxyExecutionResult,
+  ProxyRequestInput,
+  ProxyResponse,
   ResolvedCredential,
   TransitFileWriter,
 } from "../core/types.ts";
 
-import { CastError, optionalRecord, optionalString, requiredString } from "../core/cast.ts";
+import { Buffer } from "node:buffer";
+import { CastError, optionalRecord, optionalScalarString, optionalString, requiredString } from "../core/cast.ts";
 import { readBoundedResponseBytes } from "../core/request.ts";
 
 /**
@@ -103,6 +108,343 @@ export interface ProviderTimeout {
   signal: AbortSignal;
   didTimeout(): boolean;
   cleanup(): void;
+}
+
+export interface BearerProviderProxyDefinition {
+  service: string;
+  baseUrl: string;
+  allowedEndpoint?: (endpoint: string) => boolean;
+}
+
+export type ProviderProxyAuth =
+  | { type: "none" }
+  | { type: "bearer" }
+  | { type: "oauth_bearer" }
+  | { type: "api_key_header"; name: string }
+  | { type: "api_key_query"; name: string }
+  | { type: "api_key_basic"; suffix?: string }
+  | { type: "api_key_authorization"; prefix: string; suffix?: string };
+
+export type ProviderProxyBaseUrlResolver = (context: ExecutionContext, service: string) => Promise<string> | string;
+export type ProviderProxyBaseUrl = string | ProviderProxyBaseUrlResolver;
+
+export interface ProviderProxyRequestCustomizationInput {
+  context: ExecutionContext;
+  service: string;
+  endpoint: string;
+  url: URL;
+  headers: Headers;
+  credential?: ResolvedCredential;
+}
+
+export interface ProviderProxyDefinition {
+  service: string;
+  baseUrl: ProviderProxyBaseUrl;
+  auth: ProviderProxyAuth;
+  allowedEndpoint?: (endpoint: string) => boolean;
+  customizeRequest?: (input: ProviderProxyRequestCustomizationInput) => Promise<void> | void;
+}
+
+const blockedProxyRequestHeaders = new Set([
+  "authorization",
+  "connection",
+  "content-length",
+  "host",
+  "transfer-encoding",
+]);
+const defaultProviderProxyMaxResponseBytes = 20 * 1024 * 1024;
+
+export function createProviderProxyUrl(baseUrl: string, endpointInput: unknown, queryInput?: unknown): URL {
+  const endpoint = normalizeProviderProxyEndpoint(endpointInput);
+  const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  const url = new URL(endpoint.slice(1), base);
+  for (const [key, value] of Object.entries(normalizeProviderProxyQuery(queryInput))) {
+    url.searchParams.set(key, value);
+  }
+  return url;
+}
+
+export function normalizeProviderProxyEndpoint(endpointInput: unknown): string {
+  const endpoint = requiredString(endpointInput, "endpoint", (message) => new ProviderRequestError(400, message));
+  if (!endpoint.startsWith("/") || endpoint.startsWith("//")) {
+    throw new ProviderRequestError(400, "endpoint must be a relative path starting with /");
+  }
+  try {
+    new URL(endpoint);
+    throw new ProviderRequestError(400, "endpoint must be a relative path");
+  } catch (error) {
+    if (error instanceof ProviderRequestError) {
+      throw error;
+    }
+  }
+  if (endpoint.includes("\\") || hasPathTraversalSegment(endpoint)) {
+    throw new ProviderRequestError(400, "endpoint must not contain path traversal segments");
+  }
+  return endpoint;
+}
+
+function hasPathTraversalSegment(endpoint: string): boolean {
+  const path = endpoint.split(/[?#]/u)[0]!;
+  for (const segment of path.split("/")) {
+    try {
+      if (decodeURIComponent(segment) === "..") {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function normalizeProviderProxyQuery(queryInput: unknown): Record<string, string> {
+  const query = optionalRecord(queryInput);
+  if (!query) {
+    return {};
+  }
+
+  const output: Record<string, string> = {};
+  for (const [key, value] of Object.entries(query)) {
+    const scalar = optionalScalarString(value);
+    if (scalar !== undefined) {
+      output[key] = scalar;
+    }
+  }
+  return output;
+}
+
+export function normalizeProviderProxyHeaders(headersInput: unknown): Headers {
+  const headers = new Headers();
+  const input = optionalRecord(headersInput);
+  if (!input) {
+    return headers;
+  }
+
+  for (const [name, value] of Object.entries(input)) {
+    const normalizedName = name.toLowerCase();
+    const headerValue = optionalString(value);
+    if (headerValue && !blockedProxyRequestHeaders.has(normalizedName)) {
+      headers.set(normalizedName, headerValue);
+    }
+  }
+  return headers;
+}
+
+export interface ReadProviderProxyResponseOptions {
+  maxBytes?: number;
+}
+
+export async function readProviderProxyResponse(
+  response: Response,
+  options: ReadProviderProxyResponseOptions = {},
+): Promise<ProxyResponse> {
+  const headers = Object.fromEntries(response.headers.entries());
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes: options.maxBytes ?? defaultProviderProxyMaxResponseBytes,
+    fieldName: "proxy response",
+    createError: (message) => new ProviderRequestError(413, message),
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const normalizedContentType = contentType.toLowerCase();
+  if (bytes.byteLength === 0) {
+    return {
+      status: response.status,
+      headers,
+      data: null,
+    };
+  }
+  if (normalizedContentType.includes("json")) {
+    return {
+      status: response.status,
+      headers,
+      data: JSON.parse(new TextDecoder().decode(bytes)),
+    };
+  }
+  if (isTextProxyContentType(normalizedContentType)) {
+    return {
+      status: response.status,
+      headers,
+      data: new TextDecoder().decode(bytes),
+    };
+  }
+  return {
+    status: response.status,
+    headers,
+    bodyEncoding: "base64",
+    data: Buffer.from(bytes).toString("base64"),
+  };
+}
+
+export async function readProviderProxyErrorMessage(response: Response, fallbackMessage: string): Promise<string> {
+  const bytes = await readBoundedResponseBytes(response, {
+    maxBytes: defaultProviderProxyMaxResponseBytes,
+    fieldName: "proxy error response",
+    createError: (message) => new ProviderRequestError(413, message),
+  });
+  return bytes.byteLength === 0 ? fallbackMessage : new TextDecoder().decode(bytes) || fallbackMessage;
+}
+
+function isTextProxyContentType(contentType: string): boolean {
+  const normalized = contentType.toLowerCase();
+  return (
+    normalized.startsWith("text/") ||
+    normalized.includes("xml") ||
+    normalized.includes("javascript") ||
+    normalized.includes("x-www-form-urlencoded")
+  );
+}
+
+export function toProviderProxyError(error: unknown, fallbackMessage: string): ProxyExecutionResult {
+  const result = toProviderExecutionError(error, fallbackMessage);
+  if (result.ok) {
+    return {
+      ok: false,
+      error: {
+        code: "provider_error",
+        message: fallbackMessage,
+      },
+    };
+  }
+  return {
+    ok: false,
+    error: result.error!,
+  };
+}
+
+export function defineProviderProxy(input: ProviderProxyDefinition): ProviderProxyExecutor {
+  return async (proxyInput: ProxyRequestInput, context: ExecutionContext): Promise<ProxyExecutionResult> => {
+    try {
+      const endpoint = normalizeProviderProxyEndpoint(proxyInput.endpoint);
+      if (input.allowedEndpoint && !input.allowedEndpoint(endpoint)) {
+        throw new ProviderRequestError(400, "endpoint is not supported for this provider");
+      }
+
+      const url = createProviderProxyUrl(
+        await resolveProviderProxyBaseUrl(input.baseUrl, context, input.service),
+        endpoint,
+        proxyInput.query,
+      );
+      const headers = normalizeProviderProxyHeaders(proxyInput.headers);
+      headers.set("user-agent", providerUserAgent);
+      const credential = await applyProviderProxyAuth(input, context, url, headers);
+      await input.customizeRequest?.({
+        context,
+        service: input.service,
+        endpoint,
+        url,
+        headers,
+        credential,
+      });
+
+      const init: RequestInit = {
+        method: proxyInput.method,
+        headers,
+        signal: context.signal,
+      };
+      if (proxyInput.body !== undefined) {
+        init.body = typeof proxyInput.body === "string" ? proxyInput.body : JSON.stringify(proxyInput.body);
+        if (!headers.has("content-type") && typeof proxyInput.body !== "string") {
+          headers.set("content-type", "application/json");
+        }
+      }
+
+      const response = await fetch(url, init);
+      if (!response.ok) {
+        throw new ProviderRequestError(
+          response.status,
+          await readProviderProxyErrorMessage(response, `provider request failed with HTTP ${response.status}`),
+        );
+      }
+
+      return {
+        ok: true,
+        response: await readProviderProxyResponse(response),
+      };
+    } catch (error) {
+      return toProviderProxyError(error, "provider request failed");
+    }
+  };
+}
+
+export function defineBearerProviderProxy(input: BearerProviderProxyDefinition): ProviderProxyExecutor {
+  return defineProviderProxy({
+    ...input,
+    auth: { type: "bearer" },
+  });
+}
+
+export function credentialProviderProxyBaseUrl(...fields: string[]): ProviderProxyBaseUrlResolver {
+  return async (context: ExecutionContext, service: string): Promise<string> => {
+    const credential = await context.getCredential(service);
+    if (!credential || credential.authType === "no_auth") {
+      throw new ProviderRequestError(401, `Configure ${service} credentials first.`);
+    }
+
+    for (const field of fields) {
+      const metadataValue = optionalString(credential.metadata[field]);
+      if (metadataValue) {
+        return metadataValue;
+      }
+      if ("values" in credential) {
+        const value = optionalString(credential.values[field]);
+        if (value) {
+          return value;
+        }
+      }
+    }
+
+    throw new ProviderRequestError(400, `credential metadata is missing ${fields.join(", ")}`);
+  };
+}
+
+async function resolveProviderProxyBaseUrl(
+  baseUrl: ProviderProxyBaseUrl,
+  context: ExecutionContext,
+  service: string,
+): Promise<string> {
+  return typeof baseUrl === "string" ? baseUrl : await baseUrl(context, service);
+}
+
+async function applyProviderProxyAuth(
+  input: ProviderProxyDefinition,
+  context: ExecutionContext,
+  url: URL,
+  headers: Headers,
+): Promise<ResolvedCredential | undefined> {
+  switch (input.auth.type) {
+    case "none":
+      return undefined;
+    case "bearer": {
+      const credential = await requireBearerCredential(context, input.service);
+      headers.set("authorization", `${credential.tokenType} ${credential.accessToken}`);
+      return undefined;
+    }
+    case "oauth_bearer": {
+      const credential = await requireOAuthCredential(context, input.service);
+      headers.set("authorization", `${credential.tokenType} ${credential.accessToken}`);
+      return credential;
+    }
+    case "api_key_header": {
+      const credential = await requireApiKeyCredential(context, input.service);
+      headers.set(input.auth.name, credential.apiKey);
+      return credential;
+    }
+    case "api_key_query": {
+      const credential = await requireApiKeyCredential(context, input.service);
+      url.searchParams.set(input.auth.name, credential.apiKey);
+      return credential;
+    }
+    case "api_key_basic": {
+      const credential = await requireApiKeyCredential(context, input.service);
+      headers.set("authorization", `Basic ${btoa(`${credential.apiKey}${input.auth.suffix ?? ""}`)}`);
+      return credential;
+    }
+    case "api_key_authorization": {
+      const credential = await requireApiKeyCredential(context, input.service);
+      headers.set("authorization", `${input.auth.prefix}${credential.apiKey}${input.auth.suffix ?? ""}`);
+      return credential;
+    }
+  }
 }
 
 /**

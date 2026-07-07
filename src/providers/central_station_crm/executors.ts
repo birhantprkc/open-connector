@@ -1,7 +1,12 @@
-import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidators,
+  ExecutionContext,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+} from "../../core/types.ts";
 import type { CentralStationCrmActionName } from "./actions.ts";
 
-import { defineProviderExecutors, requireApiKeyCredential } from "../provider-runtime.ts";
+import { defineProviderExecutors, defineProviderProxy, requireApiKeyCredential } from "../provider-runtime.ts";
 import {
   centralStationCrmActionHandlers,
   readCentralStationCrmApiBaseUrl,
@@ -51,6 +56,18 @@ export const executors: ProviderExecutors = defineProviderExecutors({
       signal: context.signal,
     };
   },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: async (context) => {
+    const credential = await requireApiKeyCredential(context, service);
+    return readCentralStationCrmApiBaseUrl({
+      apiBaseUrl: credential.metadata.apiBaseUrl ?? credential.values.account,
+      subdomain: credential.metadata.subdomain ?? credential.values.account,
+    });
+  },
+  auth: { type: "api_key_header", name: "x-apikey" },
 });
 
 export const credentialValidators: CredentialValidators = {

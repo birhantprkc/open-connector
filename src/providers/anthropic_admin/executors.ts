@@ -1,8 +1,13 @@
-import type { CredentialValidators, ProviderExecutors } from "../../core/types.ts";
+import type { CredentialValidators, ProviderExecutors, ProviderProxyExecutor } from "../../core/types.ts";
 import type { ApiKeyProviderContext } from "../provider-runtime.ts";
 
 import { optionalRecord, optionalString, requiredString } from "../../core/cast.ts";
-import { defineApiKeyProviderExecutors, ProviderRequestError, providerUserAgent } from "../provider-runtime.ts";
+import {
+  defineApiKeyProviderExecutors,
+  defineProviderProxy,
+  ProviderRequestError,
+  providerUserAgent,
+} from "../provider-runtime.ts";
 
 const service = "anthropic_admin";
 const anthropicAdminApiBaseUrl = "https://api.anthropic.com";
@@ -45,6 +50,15 @@ export const anthropicAdminActionHandlers: Record<string, AnthropicAdminActionHa
 };
 
 export const executors: ProviderExecutors = defineApiKeyProviderExecutors(service, anthropicAdminActionHandlers);
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: anthropicAdminApiBaseUrl,
+  auth: { type: "api_key_header", name: "x-api-key" },
+  customizeRequest({ headers }) {
+    headers.set("anthropic-version", anthropicAdminApiVersion);
+  },
+});
 
 export const credentialValidators: CredentialValidators = {
   async apiKey(input, { fetcher, signal }) {

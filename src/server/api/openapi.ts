@@ -159,6 +159,7 @@ export function createOpenApiDocument(
     "/api/files": createTransitFilesPath(),
     "/api/files/{fileId}": createTransitFilePath(),
     "/v1/actions/{actionId}": runPath,
+    "/v1/proxy/{service}": createProxyPath(),
     "/api/runs": createRunsPath(),
     "/mcp": createMcpPath(),
     "/mcp/tools": getOperation("MCP", "List discovery-oriented MCP tool summaries.", {
@@ -184,6 +185,7 @@ export function createOpenApiDocument(
       { name: "Access", description: "Runtime bearer tokens for /v1 and MCP clients." },
       { name: "Files", description: "Local temporary file transit for provider actions." },
       { name: "Runs", description: "Local action execution and recent run history." },
+      { name: "Proxy", description: "Provider API proxy requests through local credentials." },
       { name: "MCP", description: "Stateless MCP POST endpoint and tool metadata." },
     ],
     paths,
@@ -605,6 +607,90 @@ function createRunPath(): Record<string, unknown> {
         400: jsonResponse(runtimeFailureSchema()),
         404: jsonResponse(runtimeFailureSchema()),
         500: jsonResponse(runtimeFailureSchema()),
+      },
+    },
+  };
+}
+
+function createProxyPath(): Record<string, unknown> {
+  return {
+    post: {
+      tags: ["Proxy"],
+      summary: "Proxy one provider API request.",
+      description:
+        "For providers with a local proxy executor, forwards a provider-relative HTTP request and applies stored provider credentials locally.",
+      parameters: [
+        {
+          name: "service",
+          in: "path",
+          required: true,
+          schema: jsonSchema.string({ description: "Provider service identifier." }),
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: jsonSchema.object(
+              {
+                endpoint: jsonSchema.string({ description: "Provider-relative path beginning with /." }),
+                method: jsonSchema.string({
+                  description: "HTTP method: DELETE, GET, HEAD, PATCH, POST, or PUT.",
+                }),
+                query: {
+                  type: "object",
+                  additionalProperties: true,
+                  description: "Provider query parameters. Scalar values are forwarded.",
+                },
+                headers: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                  description: "Provider request headers. Hop-by-hop and auth headers are not forwarded.",
+                },
+                body: jsonSchema.unknown("Provider request body."),
+                connectionName: jsonSchema.string({
+                  description: "Optional local connection name. Defaults to default.",
+                }),
+              },
+              {
+                required: ["endpoint", "method"],
+                description: "Provider proxy request.",
+              },
+            ),
+          },
+        },
+      },
+      responses: {
+        200: jsonResponse(
+          runtimeSuccessSchema(
+            jsonSchema.object(
+              {
+                status: { type: "integer", description: "Provider HTTP response status." },
+                headers: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                  description: "Provider response headers.",
+                },
+                bodyEncoding: jsonSchema.string({
+                  description: "Present as base64 when the provider response is binary.",
+                }),
+                data: jsonSchema.unknown("Provider response payload."),
+              },
+              {
+                required: ["status", "headers", "data"],
+                description: "Provider proxy response.",
+              },
+            ),
+          ),
+        ),
+        400: jsonResponse(runtimeFailureSchema()),
+        403: jsonResponse(runtimeFailureSchema()),
+        404: jsonResponse(runtimeFailureSchema()),
+        409: jsonResponse(runtimeFailureSchema()),
+        413: jsonResponse(runtimeFailureSchema()),
+        429: jsonResponse(runtimeFailureSchema()),
+        500: jsonResponse(runtimeFailureSchema()),
+        501: jsonResponse(runtimeFailureSchema()),
       },
     },
   };

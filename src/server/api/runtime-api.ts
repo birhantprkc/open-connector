@@ -3,7 +3,7 @@ import type { ConnectionError, ConnectionSummary } from "../../connection-servic
 import type { ExecutionResult, ProviderDefinition } from "../../core/types.ts";
 import type { Context } from "hono";
 
-type RuntimeStatus = 400 | 401 | 403 | 404 | 409 | 429 | 500 | 501;
+type RuntimeStatus = 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500 | 501;
 
 export type RuntimeResponseMeta = Record<string, unknown>;
 

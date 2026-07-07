@@ -1,9 +1,19 @@
-import type { CredentialValidators, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidators,
+  ExecutionContext,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+} from "../../core/types.ts";
 import type { WhatsAppActionContext } from "./runtime.ts";
 
 import { optionalString } from "../../core/cast.ts";
-import { defineProviderExecutors, requireApiKeyCredential } from "../provider-runtime.ts";
-import { validateWhatsAppCredential, whatsappActionHandlers } from "./runtime.ts";
+import { defineProviderExecutors, defineProviderProxy, requireApiKeyCredential } from "../provider-runtime.ts";
+import {
+  validateWhatsAppCredential,
+  whatsappActionHandlers,
+  whatsappGraphApiBaseUrl,
+  whatsappGraphApiVersion,
+} from "./runtime.ts";
 
 const service = "whatsapp";
 
@@ -21,6 +31,12 @@ export const executors: ProviderExecutors = defineProviderExecutors<WhatsAppActi
     if (context.transitFiles) providerContext.transitFiles = context.transitFiles;
     return providerContext;
   },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: `${whatsappGraphApiBaseUrl}/${whatsappGraphApiVersion}`,
+  auth: { type: "api_key_authorization", prefix: "Bearer " },
 });
 
 export const credentialValidators: CredentialValidators = {

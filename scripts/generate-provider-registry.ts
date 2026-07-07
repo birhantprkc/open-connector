@@ -16,13 +16,14 @@ function propertyName(service: string): string {
   return /^[A-Za-z_$][\w$]*$/.test(service) ? service : JSON.stringify(service);
 }
 
-const lines = [
-  'import type { CredentialValidators, ProviderExecutors } from "../core/types.ts";',
+const registryLines = [
+  'import type { CredentialValidators, ProviderExecutors, ProviderProxyExecutor } from "../core/types.ts";',
   "",
   "/** Lazy-loaded provider executor module shape. */",
   "export type ExecutorModule = {",
   "  credentialValidators?: CredentialValidators;",
   "  executors: ProviderExecutors;",
+  "  proxy?: ProviderProxyExecutor;",
   "};",
   "",
   "/** Generated lazy imports for provider executors. Do not hand-edit. */",
@@ -43,7 +44,7 @@ const lines = [
 ];
 
 const registryPath = join(providersDir, "registry.generated.ts");
-const registryContent = `${lines.join("\n")}\n`;
+const registryContent = `${registryLines.join("\n")}\n`;
 const existingContent = await readTextFile(registryPath);
 if (existingContent !== registryContent) {
   await writeFile(registryPath, registryContent);

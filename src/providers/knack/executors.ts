@@ -3,12 +3,15 @@ import type {
   CredentialValidators,
   ExecutionContext,
   ProviderExecutors,
+  ProviderProxyExecutor,
+  ResolvedCredential,
 } from "../../core/types.ts";
 import type { KnackActionName } from "./actions.ts";
 
 import { compactObject, optionalInteger, optionalRecord, optionalString, requiredRecord } from "../../core/cast.ts";
 import {
   defineProviderExecutors,
+  defineProviderProxy,
   providerUserAgent,
   ProviderRequestError,
   requireApiKeyCredential,
@@ -63,6 +66,19 @@ export const executors: ProviderExecutors = defineProviderExecutors<KnackActionC
       fetcher,
       signal: context.signal,
     };
+  },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: knackApiBaseUrl,
+  auth: { type: "api_key_header", name: "x-knack-rest-api-key" },
+  customizeRequest({ headers, credential }) {
+    const apiCredential = credential as Extract<ResolvedCredential, { authType: "api_key" }>;
+    headers.set(
+      "x-knack-application-id",
+      readKnackAppId(apiCredential.values.appId ?? apiCredential.metadata.appId, "credential appId"),
+    );
   },
 });
 

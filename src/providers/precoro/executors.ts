@@ -1,9 +1,16 @@
-import type { CredentialValidationResult, ExecutionContext, ProviderExecutors } from "../../core/types.ts";
+import type {
+  CredentialValidationResult,
+  ExecutionContext,
+  ProviderExecutors,
+  ProviderProxyExecutor,
+  ResolvedCredential,
+} from "../../core/types.ts";
 import type { ProviderFetch } from "../provider-runtime.ts";
 
 import { optionalRecord, optionalString, requiredString } from "../../core/cast.ts";
 import {
   defineProviderExecutors,
+  defineProviderProxy,
   ProviderRequestError,
   providerUserAgent,
   requireApiKeyCredential,
@@ -54,6 +61,19 @@ export const executors: ProviderExecutors = defineProviderExecutors({
       fetcher,
       signal: context.signal,
     };
+  },
+});
+
+export const proxy: ProviderProxyExecutor = defineProviderProxy({
+  service,
+  baseUrl: async (context) => resolvePrecoroBaseUrl((await requireApiKeyCredential(context, service)).values.region),
+  auth: { type: "api_key_header", name: "x-auth-token" },
+  customizeRequest({ headers, credential }) {
+    const apiCredential = credential as Extract<ResolvedCredential, { authType: "api_key" }>;
+    headers.set(
+      "email",
+      requiredString(apiCredential.values.email, "email", (message) => new ProviderRequestError(401, message)),
+    );
   },
 });
 

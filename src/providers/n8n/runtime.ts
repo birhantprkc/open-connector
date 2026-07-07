@@ -730,7 +730,7 @@ function extractN8nErrorMessage(payload: unknown): string | undefined {
   return optionalString(object.message) ?? optionalString(object.error);
 }
 
-function resolveN8nApiBaseUrl(credential: Extract<ResolvedCredential, { authType: "api_key" }>): string {
+export function resolveN8nApiBaseUrl(credential: Extract<ResolvedCredential, { authType: "api_key" }>): string {
   const apiBaseUrl = optionalString(credential.metadata.apiBaseUrl);
   if (apiBaseUrl) {
     return buildN8nApiBaseUrl(normalizeN8nInstanceUrl(apiBaseUrl));
