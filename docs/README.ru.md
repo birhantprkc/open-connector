@@ -208,9 +208,11 @@ CLI, MCP либо HTTP API.
 
 ```bash
 npm install
-npm run build:web
 npm run dev
 ```
+
+Локальный API runtime слушает `http://localhost:3000`. Dev server Web Console слушает
+`http://localhost:5173` и проксирует API requests в runtime.
 
 Перед открытием pull request:
 

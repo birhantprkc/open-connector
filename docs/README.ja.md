@@ -196,9 +196,11 @@ Node.js 22 以上を使用してください。
 
 ```bash
 npm install
-npm run build:web
 npm run dev
 ```
+
+Local API runtime は `http://localhost:3000` で待ち受けます。Web Console dev server は
+`http://localhost:5173` で待ち受け、API requests を runtime に proxy します。
 
 pull request を開く前に実行します。
 

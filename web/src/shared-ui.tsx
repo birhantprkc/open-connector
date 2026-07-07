@@ -53,12 +53,20 @@ export function TagList(props: { values: string[]; empty: string }): ReactNode {
 
 export function ProviderIcon(props: { provider: ProviderDefinition; large?: boolean }): ReactNode {
   const letters = providerInitials(props.provider.displayName);
-  const iconUrl = providerIconUrl(props.provider);
-  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
+  const iconSource = providerIconSource(props.provider);
+  const [failedIconSource, setFailedIconSource] = useState<string | null>(null);
   const className = props.large ? "provider-icon large" : "provider-icon";
 
-  if (!iconUrl || failedIconUrl === iconUrl) {
+  if (!iconSource || failedIconSource === iconSource.value) {
     return <span className={className}>{letters}</span>;
+  }
+
+  if (iconSource.kind == "class") {
+    return (
+      <span className={className}>
+        <i aria-hidden="true" className={`provider-icon-css-icon ${iconSource.value}`} />
+      </span>
+    );
   }
 
   return (
@@ -68,8 +76,8 @@ export function ProviderIcon(props: { provider: ProviderDefinition; large?: bool
         className="provider-icon-image"
         loading="lazy"
         referrerPolicy="no-referrer"
-        src={iconUrl}
-        onError={() => setFailedIconUrl(iconUrl)}
+        src={iconSource.value}
+        onError={() => setFailedIconSource(iconSource.value)}
       />
     </span>
   );
@@ -87,9 +95,38 @@ export function providerInitials(displayName: string): string {
 }
 
 export function providerIconUrl(provider: ProviderDefinition): string | undefined {
+  const source = providerIconSource(provider);
+  return source?.kind == "url" ? source.value : undefined;
+}
+
+interface ProviderIconSource {
+  kind: "url" | "class";
+  value: string;
+}
+
+const defaultGoogleProviderIconClass = "i-logos-google-icon";
+
+const googleProviderIconClasses: Record<string, string> = {
+  google_analytics: "i-logos-google-analytics",
+  gmail: "i-logos-google-gmail",
+  googlephotos: "i-logos-google-photos",
+  google_search_console: "i-logos-google-search-console",
+  google_cloud_sts: "i-logos-google-cloud",
+  googledrive: "i-logos-google-drive",
+  googlecalendar: "i-logos-google-calendar",
+  google_address_validation: "i-logos-google-maps",
+  google_routes: "i-logos-google-maps",
+};
+
+export function providerIconSource(provider: ProviderDefinition): ProviderIconSource | undefined {
   const iconUrl = provider.iconUrl?.trim();
   if (iconUrl) {
-    return iconUrl;
+    return { kind: "url", value: iconUrl };
+  }
+
+  const resolvedIconClass = resolveProviderIconClass(provider);
+  if (resolvedIconClass) {
+    return { kind: "class", value: resolvedIconClass };
   }
 
   if (import.meta.env.VITE_PROVIDER_ICON_FAVICON_FALLBACK === "false") {
@@ -101,7 +138,20 @@ export function providerIconUrl(provider: ProviderDefinition): string | undefine
     return undefined;
   }
 
-  return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(hostname)}`;
+  return { kind: "url", value: `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(hostname)}` };
+}
+
+export function resolveProviderIconClass(provider: ProviderDefinition): string | undefined {
+  const iconClass = googleProviderIconClasses[provider.service];
+  if (iconClass) {
+    return iconClass;
+  }
+
+  if (provider.homepageUrl?.toLowerCase().includes("google")) {
+    return defaultGoogleProviderIconClass;
+  }
+
+  return undefined;
 }
 
 function providerHomepageHostname(homepageUrl: string | undefined): string | undefined {

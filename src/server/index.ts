@@ -25,9 +25,8 @@ const actionPolicy = new ActionPolicyService({
   allowedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_ALLOWED_ACTIONS),
   blockedActions: parseActionPolicyList(process.env.OOMOL_CONNECT_BLOCKED_ACTIONS),
 });
-const sourceRoot = join(process.cwd(), "web");
 const builtRoot = join(process.cwd(), "dist/web");
-const staticRoot = await resolveStaticRoot(builtRoot, sourceRoot);
+const staticRoot = await resolveStaticRoot(builtRoot);
 await mkdir(dataDir, { recursive: true });
 const catalog = await loadCatalog(undefined, {
   executableActionIds: Object.values(executableActionIds).flat(),
@@ -88,15 +87,18 @@ serve(
         "local credential encryption is disabled; set OOMOL_CONNECT_ENCRYPTION_KEY to encrypt stored credentials",
       );
     }
+    if (!staticRoot) {
+      logger.warn("web console assets are not built; use http://localhost:5173 for local console development");
+    }
   },
 );
 
-async function resolveStaticRoot(primary: string, fallback: string): Promise<string> {
+async function resolveStaticRoot(root: string): Promise<string | undefined> {
   try {
-    await access(join(primary, "index.html"));
-    return primary;
+    await access(join(root, "index.html"));
+    return root;
   } catch {
-    return fallback;
+    return undefined;
   }
 }
 

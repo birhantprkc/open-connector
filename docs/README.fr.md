@@ -212,9 +212,11 @@ Utilisez Node.js 22 ou plus récent :
 
 ```bash
 npm install
-npm run build:web
 npm run dev
 ```
+
+Le runtime API local écoute sur `http://localhost:3000`. Le serveur de développement Web Console
+écoute sur `http://localhost:5173` et proxy les requêtes API vers le runtime.
 
 Avant d'ouvrir une pull request :
 

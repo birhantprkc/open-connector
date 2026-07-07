@@ -1,10 +1,9 @@
 # Quickstart
 
-Install dependencies, run the build, and start the runtime:
+Install dependencies and start the local development servers:
 
 ```bash
 npm install
-npm run build
 npm run dev
 ```
 
@@ -117,11 +116,15 @@ After the browser callback completes, the OAuth credential is stored as the defa
 
 ## Web Console
 
-The web console is served at `http://localhost:3000` after building the `web` workspace:
+For local development, open the Web Console at `http://localhost:5173`. The Vite dev server proxies
+API requests to the runtime on `http://localhost:3000`.
+
+For a built console served by the Node runtime, build the `web` workspace and start only the API
+server:
 
 ```bash
 npm run build:web
-npm run dev
+npm run start
 ```
 
 ## Cloudflare Workers Preview
@@ -130,8 +133,6 @@ Create the Cloudflare resources, apply the D1 schema, and start a local Worker p
 
 ```bash
 cp wrangler.example.jsonc wrangler.local.jsonc
-npm run generate:catalog
-npm run build:web
 npx wrangler d1 create open-connector
 npx wrangler r2 bucket create open-connector-transit-files
 npx wrangler d1 migrations apply open-connector --local --config wrangler.local.jsonc

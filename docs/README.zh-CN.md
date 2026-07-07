@@ -192,9 +192,11 @@ HTTP API。
 
 ```bash
 npm install
-npm run build:web
 npm run dev
 ```
+
+本地 API runtime 监听 `http://localhost:3000`。Web Console 开发服务器监听
+`http://localhost:5173`，并把 API 请求代理到 runtime。
 
 打开 pull request 前运行：
 

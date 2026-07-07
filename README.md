@@ -157,9 +157,13 @@ For OAuth2 apps, named connections, credential encryption, token refresh, and ac
 
 ## Web Console
 
-Open `http://localhost:3000` after starting the runtime. The console supports provider browsing,
-API key and OAuth client configuration, runtime token creation, Action schema inspection, Action
-debugging, recent run review, and access to the generated OpenAPI and MCP metadata.
+For npm-based local development, open `http://localhost:5173`; the Web Console dev server proxies
+API requests to the runtime on `http://localhost:3000`. For Docker or a built Node runtime, the
+console is served from `http://localhost:3000`.
+
+The console supports provider browsing, API key and OAuth client configuration, runtime token
+creation, Action schema inspection, Action debugging, recent run review, and access to the
+generated OpenAPI and MCP metadata.
 
 ## Cloudflare Deployment
 
@@ -207,9 +211,11 @@ Use Node.js 22 or newer:
 
 ```bash
 npm install
-npm run build:web
 npm run dev
 ```
+
+The local API runtime listens on `http://localhost:3000`. The Web Console dev server listens on
+`http://localhost:5173` and proxies API requests to the runtime.
 
 Before opening a pull request:
 
