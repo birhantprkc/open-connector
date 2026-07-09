@@ -65,12 +65,24 @@ handing provider credentials to the agent process.
 Endpoint details, response envelopes, auth headers, MCP tools, and Action guide examples are in
 [docs/runtime-api.md](docs/runtime-api.md).
 
-## Local Console Preview
+## Dashboard Preview
 
-OpenConnector ships with a local Web Console for browsing providers, configuring credentials,
-creating runtime tokens, and inspecting runs.
+OpenConnector ships with a local Dashboard for browsing connectors, configuring credentials,
+creating runtime tokens, and inspecting runtime usage.
 
-![OpenConnector local console](assets/open-console-en.jpg)
+### Connector Catalog
+
+Use the connector catalog to see available services, search for providers, and open their Actions
+and credential setup from one place.
+
+![OpenConnector connector catalog dashboard](assets/open-console-en.jpg)
+
+### Usage Overview
+
+Use the Overview page after deployment to monitor runtime readiness, available providers,
+executable Actions, recent failures, tool call trends, and recent calls.
+
+![OpenConnector runtime overview dashboard](assets/overview-page-en.jpg)
 
 Provider names and trademarks belong to their respective owners and are used only for identification
 and interoperability.
