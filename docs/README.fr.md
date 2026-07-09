@@ -25,8 +25,8 @@ hosts d'agents, HTTP/OpenAPI pour les clients personnalisés, et la Web Console 
 l'administration et le débogage.
 
 - Gardez credentials, scopes, schemas, policies et run logs dans un runtime inspectable.
-- Exécutez-le en local, sur une infrastructure compatible Cloudflare ou via le runtime hébergé
-  d'OOMOL.
+- Exécutez-le en local, sur Fly.io, sur une infrastructure compatible Cloudflare ou via le runtime
+  hébergé d'OOMOL.
 - Utilisez les mêmes provider ids, Action ids, schemas et contracts entre les déploiements open
   source et SaaS commercial.
 
@@ -40,8 +40,8 @@ l'administration et le débogage.
   executor source chargé à la demande.
 - Des runtime controls pour la production : connection identity, scopes, runtime tokens, action
   allow/block policies, transit temporaire de fichiers et journaux d'exécution masqués.
-- Un déploiement via Docker ou Node.js en local, Cloudflare Workers / D1 / R2 / Static Assets, ou le
-  runtime hébergé d'OOMOL.
+- Des options de déploiement via Docker ou Node.js en local, Fly.io avec stockage SQLite persistant,
+  Cloudflare Workers / D1 / R2 / Static Assets, ou le runtime hébergé d'OOMOL.
 
 ## Où L'utiliser
 
@@ -102,6 +102,7 @@ nécessaires à la run.
 | Parcours                          | Idéal pour                                                          | Inclus                                                                                                                                                                           |
 | --------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Open source self-host             | Développeurs et équipes qui veulent un contrôle total               | Runtime Docker ou Node local, stockage SQLite, MCP, HTTP, OpenAPI et Web Console                                                                                                 |
+| Fly.io self-host                  | Équipes qui veulent un runtime Docker hébergé                       | Runtime Docker Node, stockage SQLite sur un volume Fly, TLS, health checks, MCP, HTTP, OpenAPI et Web Console                                                                    |
 | Déploiement compatible Cloudflare | Équipes qui veulent un runtime hébergé léger                        | Workers runtime, état D1, fichiers de transit R2 et Static Assets pour la console                                                                                                |
 | [OOMOL](https://oomol.com/)       | Équipes bloquées par l'approbation OAuth ou les délais de lancement | Auth hébergée et infrastructure runtime avec les mêmes provider et Action contracts ; compatible avec l'interface open source pour un déploiement privé ou self-hosted ultérieur |
 
@@ -174,6 +175,14 @@ gère les fichiers de transit et Static Assets sert la Web Console.
 Consultez [cloudflare.md](cloudflare.md) pour la création des ressources, les migrations, les
 secrets, la preview Worker locale et le déploiement distant.
 
+## Déploiement Fly.io
+
+OpenConnector peut aussi être déployé sur Fly.io avec le runtime Docker Node et un stockage SQLite
+persistant sur un volume Fly.
+
+Consultez [fly-io.md](fly-io.md) pour créer l'app Fly, configurer le volume et les secrets,
+déployer, définir un domaine personnalisé et ajuster le scaling.
+
 ## Vous voulez l'utiliser directement ?
 
 Les parcours ci-dessus s'adressent aux équipes qui intègrent le connector dans leurs produits,
@@ -197,6 +206,7 @@ synchroniser dans les outils connectés en natural language.
 - [Outils développeur](sdk-cli.md)
 - [Tutoriel Gmail OAuth et SDK (anglais)](gmail-oauth-sdk.md)
 - [Runtime API et MCP](runtime-api.md)
+- [Déploiement Fly.io](fly-io.md)
 - [Déploiement Cloudflare](cloudflare.md)
 - [Configuration](configuration.md)
 - [Credentials et OAuth](credentials.md)
